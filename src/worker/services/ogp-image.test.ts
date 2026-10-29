@@ -14,7 +14,7 @@ describe("excerpt", () => {
     expect(excerpt("要するにそうだな。")).toBe("要するにそうだな。");
   });
   test("長ければ文の区切りで切り、省略記号を付ける", () => {
-    const text = "最初の文はここまでです。" + "あ".repeat(100);
+    const text = `最初の文はここまでです。${"あ".repeat(100)}`;
     expect(excerpt(text, 30)).toBe("最初の文はここまでです。…");
   });
   test("区切りがなければ上限で切る", () => {
@@ -37,12 +37,12 @@ describe("pickQuotes", () => {
 
 describe("buildOgpHtml", () => {
   const base = {
-    title: `<script>alert(1)</script>タイトル`,
+    title: "<script>alert(1)</script>タイトル",
     summary: "要約",
     sourceUrl: "https://www.example.com/a",
     participantCount: 2,
     messageCount: 6,
-    quotes: [{ persona: { ...persona, name: `<b>ケン</b>` }, text: `<img src=x>発言` }],
+    quotes: [{ persona: { ...persona, name: "<b>ケン</b>" }, text: "<img src=x>発言" }],
   };
 
   test("記事・発言・名前由来のテキストをエスケープする", () => {

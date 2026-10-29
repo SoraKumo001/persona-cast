@@ -1,14 +1,14 @@
-import { Env } from "../types";
-import { ChatMessage, generateChatCompletion } from "./llm";
 import { buildPersonaGenerateMessages } from "../prompts";
+import type { Env } from "../types";
+import { type ChatMessage, generateChatCompletion } from "./llm";
 
 export interface PersonaDraft {
-  name: string;
-  role: string;
   avatar: string;
-  themeColor: string;
+  name: string;
   personality: string;
+  role: string;
   speakingStyle: string;
+  themeColor: string;
 }
 
 /** 既存ペルソナの要約 (新規生成時に、被らない個性にするための参考) */
@@ -20,7 +20,7 @@ export interface PersonaBrief {
 
 const LIMITS = { name: 40, role: 40, personality: 600, speakingStyle: 400 } as const;
 const DEFAULT_COLOR = "#6366f1";
-const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/u;
 
 export const INSTRUCTION_MAX_CHARS = 500;
 
@@ -35,11 +35,13 @@ const clip = (v: unknown, max: number): string => (typeof v === "string" ? v.tri
  * 必須項目(名前・性格・口調)が欠けている場合は null。色が不正ならフォールバック色を使う。
  */
 export function parsePersonaDraft(text: string, fallbackColor: string = DEFAULT_COLOR): PersonaDraft | null {
-  const json = text.match(/\{[\s\S]*\}/)?.[0];
-  if (!json) return null;
-  let raw: any;
+  const json = text.match(/\{[\s\S]*\}/u)?.[0];
+  if (!json) {
+    return null;
+  }
+  let raw: Record<string, unknown>;
   try {
-    raw = JSON.parse(json);
+    raw = JSON.parse(json) as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -47,7 +49,9 @@ export function parsePersonaDraft(text: string, fallbackColor: string = DEFAULT_
   const name = clip(raw.name, LIMITS.name);
   const personality = clip(raw.personality, LIMITS.personality);
   const speakingStyle = clip(raw.speakingStyle, LIMITS.speakingStyle);
-  if (!name || !personality || !speakingStyle) return null;
+  if (!(name && personality && speakingStyle)) {
+    return null;
+  }
 
   const color = typeof raw.themeColor === "string" ? raw.themeColor.trim() : "";
   const avatar = clip(raw.avatar, 8);
@@ -95,7 +99,12 @@ export async function generatePersonaDraft(
   others: PersonaBrief[]
 ): Promise<PersonaDraft> {
   const text = await generateChatCompletion(buildPersonaMessages(instruction, base, others), env, "persona-generate");
-  const draft = parsePersonaDraft(text, base?.themeColor && HEX_COLOR.test(base.themeColor) ? base.themeColor : DEFAULT_COLOR);
-  if (!draft) throw new Error("生成結果を解釈できませんでした。もう一度お試しください。");
+  const draft = parsePersonaDraft(
+    text,
+    base?.themeColor && HEX_COLOR.test(base.themeColor) ? base.themeColor : DEFAULT_COLOR
+  );
+  if (!draft) {
+    throw new Error("生成結果を解釈できませんでした。もう一度お試しください。");
+  }
   return draft;
 }

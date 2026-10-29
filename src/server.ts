@@ -1,8 +1,13 @@
-import { Env } from "./worker/types";
-import workerApp from "./worker/index";
-import { withEdgeCache } from "./worker/cache";
-import { trackRequest } from "./worker/services/analytics-track";
 import startHandler from "@tanstack/react-start/server-entry";
+import { withEdgeCache } from "./worker/cache";
+import workerApp from "./worker/index";
+import { trackRequest } from "./worker/services/analytics-track";
+import type { Env } from "./worker/types";
+
+/** TanStack Start のサーバーエントリが公開する fetch ハンドラー */
+interface FetchHandler {
+  fetch?: (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response> | Response;
+}
 
 async function handle(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
@@ -14,10 +19,11 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 
   // TanStack Start SSR ハンドラー
   try {
-    if (startHandler && typeof (startHandler as any).fetch === "function") {
-      return await (startHandler as any).fetch(request, env, ctx);
+    const { fetch: ssrFetch } = startHandler as FetchHandler;
+    if (typeof ssrFetch === "function") {
+      return await ssrFetch.call(startHandler, request, env, ctx);
     }
-  } catch (err: any) {
+  } catch (err) {
     console.error("TanStack Start SSR Error:", err);
   }
 

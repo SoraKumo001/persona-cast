@@ -11,5 +11,5 @@ export const getSiteOrigin = createServerFn({ method: "GET" }).handler(async () 
 export const getWebAnalyticsToken = createServerFn({ method: "GET" }).handler(async (): Promise<string | null> => {
   const { env } = await import("cloudflare:workers");
   const token = (env as { WEB_ANALYTICS_TOKEN?: string }).WEB_ANALYTICS_TOKEN?.trim();
-  return token && /^[0-9a-f]{16,64}$/i.test(token) ? token : null;
+  return token && /^[0-9a-f]{16,64}$/iu.test(token) ? token : null;
 });

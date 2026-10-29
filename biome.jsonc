@@ -1,0 +1,55 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "extends": [
+    "ultracite/biome/core",
+    "ultracite/biome/react",
+    "ultracite/biome/tanstack"
+  ],
+  "files": {
+    "includes": [
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.cloudflare",
+      "!**/.wrangler",
+      "!**/.tanstack",
+      "!**/.omc",
+      "!public",
+      "!src/routeTree.gen.ts",
+      "!bun.lock"
+    ]
+  },
+  "formatter": {
+    "lineWidth": 120
+  },
+  "javascript": {
+    // Workers / Bun のランタイムが提供するグローバル
+    "globals": ["HTMLRewriter", "Bun"]
+  },
+  "linter": {
+    "rules": {
+      "style": {
+        // コンポーネントのファイルは PascalCase (TanStack のルートファイルは別の規則なので対象外)
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": { "filenameCases": ["kebab-case", "PascalCase"] }
+        },
+        // 既存コードで広く使っている書き方。ループの i++ などは読みやすさを損なわない
+        "noIncrementDecrement": "off",
+        // 名前付きキャプチャは、使う側が少ない正規表現ではノイズになる
+        "useNamedCaptureGroup": "off"
+      },
+      "performance": {
+        // 正規表現リテラルはエンジンがキャッシュするため、関数内のものまで定数化は求めない
+        "useTopLevelRegex": "off",
+        // 関数を props に渡す書き方 (イベントハンドラ) を全面的に禁じない
+        "noJsxPropsBind": "off",
+        // 順番に処理する必要があるループ (R2 の読み出し、再帰的なリダイレクトの追跡など) がある
+        "noAwaitInLoops": "off"
+      },
+      "a11y": {
+        // <img> の onError (画像の読み込み失敗時の代替表示) は、操作のためのハンドラではない
+        "noNoninteractiveElementInteractions": "off"
+      }
+    }
+  }
+}

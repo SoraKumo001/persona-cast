@@ -5,23 +5,22 @@
  */
 import type { ChatMessage } from "../services/llm";
 import type { MemorySearchResult } from "../services/memory";
-import { renderPrompt } from "./render";
-
-import dialogueSystem from "./dialogue-system.md?raw";
-import dialogueSpeaker from "./dialogue-speaker.md?raw";
-import dialogueMemoryItem from "./dialogue-memory-item.md?raw";
-import dialogueOpening from "./dialogue-opening.md?raw";
-import dialogueTurn from "./dialogue-turn.md?raw";
-import dialogueInstructionReply from "./dialogue-instruction-reply.md?raw";
-import dialogueInstructionFinal from "./dialogue-instruction-final.md?raw";
-import consolidateSystem from "./consolidate-system.md?raw";
-import consolidateUser from "./consolidate-user.md?raw";
 import analyzeSystem from "./analyze-system.md?raw";
 import analyzeUser from "./analyze-user.md?raw";
-import personaGenerateSystem from "./persona-generate-system.md?raw";
-import personaGenerateOthers from "./persona-generate-others.md?raw";
-import personaGenerateNew from "./persona-generate-new.md?raw";
+import consolidateSystem from "./consolidate-system.md?raw";
+import consolidateUser from "./consolidate-user.md?raw";
+import dialogueInstructionFinal from "./dialogue-instruction-final.md?raw";
+import dialogueInstructionReply from "./dialogue-instruction-reply.md?raw";
+import dialogueMemoryItem from "./dialogue-memory-item.md?raw";
+import dialogueOpening from "./dialogue-opening.md?raw";
+import dialogueSpeaker from "./dialogue-speaker.md?raw";
+import dialogueSystem from "./dialogue-system.md?raw";
+import dialogueTurn from "./dialogue-turn.md?raw";
 import personaGenerateModify from "./persona-generate-modify.md?raw";
+import personaGenerateNew from "./persona-generate-new.md?raw";
+import personaGenerateOthers from "./persona-generate-others.md?raw";
+import personaGenerateSystem from "./persona-generate-system.md?raw";
+import { renderPrompt } from "./render";
 
 // 発言の長さに落差を付けるため、ターンごとに長さの目安を循環させる (全発言が同じ長さになるのを防ぐ)
 const LENGTH_HINTS = [
@@ -142,7 +141,9 @@ export function buildAnalyzeMessages(params: {
         minPersonas: params.minPersonas,
         maxPersonas: params.maxPersonas,
         personaList: params.candidates
-          .map((c) => `- id: ${c.id} / ${c.name} (${c.role}) / 出演${c.appearances ?? 0}回 / ${c.personality.slice(0, 80)}`)
+          .map(
+            (c) => `- id: ${c.id} / ${c.name} (${c.role}) / 出演${c.appearances ?? 0}回 / ${c.personality.slice(0, 80)}`
+          )
           .join("\n"),
       }),
     },

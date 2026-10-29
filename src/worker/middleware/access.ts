@@ -1,8 +1,11 @@
 import { createMiddleware } from "hono/factory";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { Env } from "../types";
+import type { Env } from "../types";
 
-type AccessEnv = { Bindings: Env; Variables: { adminEmail: string } };
+interface AccessEnv {
+  Bindings: Env;
+  Variables: { adminEmail: string };
+}
 
 const jwksByTeam = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
@@ -30,9 +33,9 @@ export const requireAccess = createMiddleware<AccessEnv>(async (c, next) => {
     return next();
   }
 
-  const teamDomain = c.env.ACCESS_TEAM_DOMAIN?.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const teamDomain = c.env.ACCESS_TEAM_DOMAIN?.replace(/^https?:\/\//u, "").replace(/\/$/u, "");
   const audience = c.env.ACCESS_AUD;
-  if (!teamDomain || !audience) {
+  if (!(teamDomain && audience)) {
     return c.json({ error: "管理者認証 (Cloudflare Access) が未設定です" }, 503);
   }
 

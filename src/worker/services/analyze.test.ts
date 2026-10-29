@@ -7,7 +7,11 @@ const candidates = ["ken", "yuki", "ren"].map((id) => ({ id, name: id, role: "r"
 describe("parseAnalysis", () => {
   test("前置きやコードブロック付きでもJSONを取り出す", () => {
     const text = '以下です\n```json\n{"summary":"要約です","genre":"AI・機械学習","personaIds":["ken","yuki"]}\n```';
-    expect(parseAnalysis(text, candidates)).toEqual({ summary: "要約です", genre: "AI・機械学習", personaIds: ["ken", "yuki"] });
+    expect(parseAnalysis(text, candidates)).toEqual({
+      summary: "要約です",
+      genre: "AI・機械学習",
+      personaIds: ["ken", "yuki"],
+    });
   });
 
   test("未知のジャンルと存在しないペルソナIDは捨てる", () => {

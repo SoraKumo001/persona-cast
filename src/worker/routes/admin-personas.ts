@@ -1,14 +1,16 @@
 import { Hono } from "hono";
-import { Env, Persona } from "../types";
-import { ensureDatabaseTables } from "../presets";
+import type { PersonaRow } from "../db-types";
+import { errorMessage } from "../errors";
 import { requireAccess } from "../middleware/access";
-import { PERSONA_COLUMNS, toPersona } from "../services/persona-store";
+import { ensureDatabaseTables } from "../presets";
 import {
-  INSTRUCTION_MAX_CHARS,
-  PersonaDraft,
   generatePersonaDraft,
+  INSTRUCTION_MAX_CHARS,
   isLlmConfigured,
+  type PersonaDraft,
 } from "../services/persona-generate";
+import { PERSONA_COLUMNS, toPersona } from "../services/persona-store";
+import type { Env, Persona } from "../types";
 
 const app = new Hono<{ Bindings: Env; Variables: { adminEmail: string } }>();
 
@@ -19,7 +21,7 @@ app.use("*", async (c, next) => {
 });
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
-const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/u;
 
 const AVATAR_TYPES: Record<string, { ext: string; matches: (b: Uint8Array) => boolean }> = {
   "image/png": {
@@ -37,9 +39,17 @@ const AVATAR_TYPES: Record<string, { ext: string; matches: (b: Uint8Array) => bo
 function validate(body: Partial<Persona>, partial: boolean): string | null {
   const required = ["name", "personality", "speakingStyle"] as const;
   if (!partial) {
-    for (const k of required) if (!body[k]) return "名前、性格、口調は必須です";
+    for (const k of required) {
+      if (!body[k]) {
+        return "名前、性格、口調は必須です";
+      }
+    }
   }
-  for (const k of required) if (k in body && !body[k]) return `${k} は空にできません`;
+  for (const k of required) {
+    if (k in body && !body[k]) {
+      return `${k} は空にできません`;
+    }
+  }
   if (body.themeColor && !HEX_COLOR.test(body.themeColor)) {
     return "テーマ色は #RRGGBB 形式で指定してください";
   }
@@ -47,7 +57,7 @@ function validate(body: Partial<Persona>, partial: boolean): string | null {
 }
 
 async function loadPersona(db: D1Database, id: string) {
-  const row = await db.prepare(`SELECT ${PERSONA_COLUMNS} FROM personas WHERE id = ?`).bind(id).first();
+  const row = await db.prepare(`SELECT ${PERSONA_COLUMNS} FROM personas WHERE id = ?`).bind(id).first<PersonaRow>();
   return row ? toPersona(row) : null;
 }
 
@@ -55,7 +65,7 @@ async function loadPersona(db: D1Database, id: string) {
 app.get("/", async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT ${PERSONA_COLUMNS} FROM personas ORDER BY created_at ASC`
-  ).all();
+  ).all<PersonaRow>();
   return c.json({ personas: results.map(toPersona) });
 });
 
@@ -68,7 +78,9 @@ app.post("/generate", async (c) => {
     .json<{ instruction?: string; base?: Partial<PersonaDraft> }>()
     .catch(() => ({}) as { instruction?: string; base?: Partial<PersonaDraft> });
   const instruction = body.instruction?.trim();
-  if (!instruction) return c.json({ error: "指示を入力してください" }, 400);
+  if (!instruction) {
+    return c.json({ error: "指示を入力してください" }, 400);
+  }
   if (instruction.length > INSTRUCTION_MAX_CHARS) {
     return c.json({ error: `指示は${INSTRUCTION_MAX_CHARS}文字以内にしてください` }, 400);
   }
@@ -82,18 +94,20 @@ app.post("/generate", async (c) => {
   try {
     const draft = await generatePersonaDraft(c.env, instruction, body.base ?? null, others);
     return c.json({ draft });
-  } catch (err: any) {
+  } catch (err) {
     console.error("Persona generation failed:", err);
-    return c.json({ error: err.message || "生成に失敗しました" }, 502);
+    return c.json({ error: errorMessage(err, "生成に失敗しました") }, 502);
   }
 });
 
 app.post("/", async (c) => {
   const body = await c.req.json<Partial<Persona>>();
   const error = validate(body, false);
-  if (error) return c.json({ error }, 400);
+  if (error) {
+    return c.json({ error }, 400);
+  }
 
-  const id = `p_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const now = new Date().toISOString();
   await c.env.DB.prepare(
     `INSERT INTO personas (id, name, role, avatar, avatar_type, theme_color, personality, speaking_style, created_at, updated_at)
@@ -119,7 +133,9 @@ app.put("/:id", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json<Partial<Persona>>();
   const error = validate(body, true);
-  if (error) return c.json({ error }, 400);
+  if (error) {
+    return c.json({ error }, 400);
+  }
 
   const fields: Record<string, string | undefined> = {
     name: body.name,
@@ -134,7 +150,9 @@ app.put("/:id", async (c) => {
   const result = await c.env.DB.prepare(`UPDATE personas SET ${sets.join(", ")} WHERE id = ?`)
     .bind(...entries.map(([, v]) => v), new Date().toISOString(), id)
     .run();
-  if (!result.meta.changes) return c.json({ error: "ペルソナが見つかりません" }, 404);
+  if (!result.meta.changes) {
+    return c.json({ error: "ペルソナが見つかりません" }, 404);
+  }
 
   return c.json({ persona: await loadPersona(c.env.DB, id) });
 });
@@ -144,25 +162,29 @@ app.delete("/:id", async (c) => {
   const result = await c.env.DB.prepare("UPDATE personas SET archived_at = ? WHERE id = ?")
     .bind(new Date().toISOString(), c.req.param("id"))
     .run();
-  if (!result.meta.changes) return c.json({ error: "ペルソナが見つかりません" }, 404);
+  if (!result.meta.changes) {
+    return c.json({ error: "ペルソナが見つかりません" }, 404);
+  }
   return c.json({ success: true });
 });
 
 app.post("/:id/restore", async (c) => {
-  await c.env.DB.prepare("UPDATE personas SET archived_at = NULL WHERE id = ?")
-    .bind(c.req.param("id"))
-    .run();
+  await c.env.DB.prepare("UPDATE personas SET archived_at = NULL WHERE id = ?").bind(c.req.param("id")).run();
   return c.json({ success: true });
 });
 
 // アバター画像アップロード: リクエストボディに画像バイナリ (Content-Type 必須)
 app.put("/:id/avatar", async (c) => {
-  if (!c.env.AVATARS) return c.json({ error: "R2 (AVATARS) が未設定です" }, 503);
+  if (!c.env.AVATARS) {
+    return c.json({ error: "R2 (AVATARS) が未設定です" }, 503);
+  }
   const id = c.req.param("id");
 
   const type = (c.req.header("Content-Type") || "").split(";")[0].trim().toLowerCase();
   const spec = AVATAR_TYPES[type];
-  if (!spec) return c.json({ error: "PNG / JPEG / WebP のみアップロードできます" }, 415);
+  if (!spec) {
+    return c.json({ error: "PNG / JPEG / WebP のみアップロードできます" }, 415);
+  }
 
   if (Number(c.req.header("Content-Length") || 0) > MAX_AVATAR_BYTES) {
     return c.json({ error: "画像は2MB以下にしてください" }, 413);
@@ -171,21 +193,23 @@ app.put("/:id/avatar", async (c) => {
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_AVATAR_BYTES) {
     return c.json({ error: "画像は2MB以下にしてください" }, 413);
   }
-  if (!spec.matches(bytes)) return c.json({ error: "画像ファイルの内容が形式と一致しません" }, 415);
+  if (!spec.matches(bytes)) {
+    return c.json({ error: "画像ファイルの内容が形式と一致しません" }, 415);
+  }
 
-  const existing: any = await c.env.DB.prepare("SELECT avatar_key FROM personas WHERE id = ?")
+  const existing = await c.env.DB.prepare("SELECT avatar_key FROM personas WHERE id = ?")
     .bind(id)
-    .first();
-  if (!existing) return c.json({ error: "ペルソナが見つかりません" }, 404);
+    .first<{ avatar_key: string | null }>();
+  if (!existing) {
+    return c.json({ error: "ペルソナが見つかりません" }, 404);
+  }
 
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   const hash = [...digest.slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
   const key = `avatars/${id}/${hash}.${spec.ext}`;
 
   await c.env.AVATARS.put(key, bytes, { httpMetadata: { contentType: type } });
-  await c.env.DB.prepare(
-    "UPDATE personas SET avatar_type = 'image', avatar_key = ?, updated_at = ? WHERE id = ?"
-  )
+  await c.env.DB.prepare("UPDATE personas SET avatar_type = 'image', avatar_key = ?, updated_at = ? WHERE id = ?")
     .bind(key, new Date().toISOString(), id)
     .run();
   if (existing.avatar_key && existing.avatar_key !== key) {
@@ -198,16 +222,18 @@ app.put("/:id/avatar", async (c) => {
 // 画像アバターを取り消して絵文字に戻す
 app.delete("/:id/avatar", async (c) => {
   const id = c.req.param("id");
-  const existing: any = await c.env.DB.prepare("SELECT avatar_key FROM personas WHERE id = ?")
+  const existing = await c.env.DB.prepare("SELECT avatar_key FROM personas WHERE id = ?")
     .bind(id)
-    .first();
-  if (!existing) return c.json({ error: "ペルソナが見つかりません" }, 404);
-  await c.env.DB.prepare(
-    "UPDATE personas SET avatar_type = 'emoji', avatar_key = NULL, updated_at = ? WHERE id = ?"
-  )
+    .first<{ avatar_key: string | null }>();
+  if (!existing) {
+    return c.json({ error: "ペルソナが見つかりません" }, 404);
+  }
+  await c.env.DB.prepare("UPDATE personas SET avatar_type = 'emoji', avatar_key = NULL, updated_at = ? WHERE id = ?")
     .bind(new Date().toISOString(), id)
     .run();
-  if (existing.avatar_key && c.env.AVATARS) await c.env.AVATARS.delete(existing.avatar_key);
+  if (existing.avatar_key && c.env.AVATARS) {
+    await c.env.AVATARS.delete(existing.avatar_key);
+  }
   return c.json({ success: true });
 });
 

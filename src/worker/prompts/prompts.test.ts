@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  buildAnalyzeMessages,
+  buildConsolidateMessages,
+  buildPersonaGenerateMessages,
+  buildTurnMessages,
+} from "./index";
 import { renderPrompt } from "./render";
-import { buildAnalyzeMessages, buildConsolidateMessages, buildPersonaGenerateMessages, buildTurnMessages } from "./index";
 
 describe("renderPrompt", () => {
   test("変数を差し込み、取り込みで付く末尾の改行1つとCRLFを正規化する", () => {
@@ -46,8 +51,21 @@ describe("全テンプレートの組み立て", () => {
     ...buildTurnMessages({ ...turn, turnIndex: 5 }),
     ...buildTurnMessages({ ...turn, isFirstSpeaker: true, history: [] }),
     ...buildConsolidateMessages("記事", [{ personaName: "ケン", text: "発言" }]),
-    ...buildAnalyzeMessages({ title: "t", content: "c", genres: ["A", "B"], minPersonas: 2, maxPersonas: 3, candidates: [persona] }),
-    ...buildPersonaGenerateMessages({ instruction: "i", base: null, others: [], example: {}, limits: { name: 40, role: 40 } }),
+    ...buildAnalyzeMessages({
+      title: "t",
+      content: "c",
+      genres: ["A", "B"],
+      minPersonas: 2,
+      maxPersonas: 3,
+      candidates: [persona],
+    }),
+    ...buildPersonaGenerateMessages({
+      instruction: "i",
+      base: null,
+      others: [],
+      example: {},
+      limits: { name: 40, role: 40 },
+    }),
     ...buildPersonaGenerateMessages({
       instruction: "i",
       base: { name: "x" },
@@ -59,7 +77,7 @@ describe("全テンプレートの組み立て", () => {
 
   test("未展開の {{変数}} が残らず、空のメッセージもない", () => {
     for (const m of all) {
-      expect(m.content).not.toMatch(/\{\{\w+\}\}/);
+      expect(m.content).not.toMatch(/\{\{\w+\}\}/u);
       expect(m.content.trim().length).toBeGreaterThan(0);
     }
   });
@@ -86,7 +104,7 @@ describe("全テンプレートの組み立て", () => {
 
 describe("テンプレートファイル", () => {
   test("すべての *.md が index.ts から読み込まれている (使われていない文面を残さない)", () => {
-    const dir = __dirname;
+    const dir = import.meta.dirname;
     const index = readFileSync(join(dir, "index.ts"), "utf-8");
     const orphans = readdirSync(dir)
       .filter((f) => f.endsWith(".md") && f !== "README.md")

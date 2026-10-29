@@ -2,7 +2,9 @@
 
 @layer base {
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-family:
+      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+      Arial, sans-serif;
   }
 }
 
@@ -15,8 +17,6 @@
 }
 
 :root[data-theme="light"] {
-  color-scheme: light;
-
   /* zinc: 明暗を反転 (950 ↔ 50, 900 ↔ 100, ...) */
   --color-zinc-50: #09090b;
   --color-zinc-100: #18181b;
@@ -40,6 +40,7 @@
   --color-red-200: #991b1b;
   --color-red-300: #b91c1c;
   --color-emerald-400: #059669;
+  color-scheme: light;
 }
 
 /* スクロールバーのカスタマイズ */

@@ -6,14 +6,19 @@ const DAILY_LIMIT_KEY = "daily_dialogue_limit";
 
 /** 1日に新しく作れる対談の総数。未設定なら既定値。0 は新規作成の停止 */
 export async function getDailyLimit(db: D1Database): Promise<number> {
-  const row = await db.prepare("SELECT value FROM app_settings WHERE key = ?").bind(DAILY_LIMIT_KEY).first<{ value: string }>();
-  const n = row ? Number.parseInt(row.value, 10) : NaN;
+  const row = await db
+    .prepare("SELECT value FROM app_settings WHERE key = ?")
+    .bind(DAILY_LIMIT_KEY)
+    .first<{ value: string }>();
+  const n = row ? Number.parseInt(row.value, 10) : Number.NaN;
   return Number.isInteger(n) && n >= 0 ? n : DEFAULT_DAILY_LIMIT;
 }
 
 export async function setDailyLimit(db: D1Database, limit: number): Promise<void> {
   await db
-    .prepare("INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .prepare(
+      "INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    )
     .bind(DAILY_LIMIT_KEY, String(limit))
     .run();
 }

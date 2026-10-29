@@ -226,3 +226,17 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 - **自動**: ダッシュボードの Web Analytics で `croud.jp` を追加し、自動設定 (プロキシ経由で JS を自動挿入) を選ぶ。コードの変更は不要です。
 - **手動**: サイトを追加して表示される `token` を `cloudflare.config.ts` の `WEB_ANALYTICS_TOKEN` に設定する。設定するとビーコンを `<body>` の末尾に出します (管理画面では出しません)。**自動設定と併用すると二重に計測されるため、どちらか一方にしてください。**
 
+## Lint・フォーマット (Ultracite / Biome)
+
+[Ultracite](https://www.ultracite.ai/) のプリセット (Biome) で、lint とフォーマットを行います。設定は `biome.jsonc` です。
+
+```bash
+bun run check   # 検査 (エラーがあれば終了コードが0以外)
+bun run fix     # 安全な自動修正とフォーマット
+```
+
+- 行の幅は 120 文字です。生成ファイル (`src/routeTree.gen.ts`)、`public/`、ビルド成果物は対象外です。
+- 一部のルールは意図的に緩めています。理由は `biome.jsonc` のコメントを参照してください (`useTopLevelRegex`、`noJsxPropsBind`、`noAwaitInLoops`、`noIncrementDecrement`、`useNamedCaptureGroup`、`<img>` の `onError` を禁じる a11y ルールは無効)。
+- `noExplicitAny` と `noLeakedRender` も有効です。D1 の行は `src/worker/db-types.ts` の型を `.all<T>()` / `.first<T>()` に渡して読み、`catch` した値は `unknown` のまま `errorMessage()` で扱います。
+- ルールを例外にするときは、`// biome-ignore lint/...: 理由` の形で、理由を必ず書きます。
+

@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import { Env } from "../types";
-import { ensureDatabaseTables } from "../presets";
 import { requireAccess } from "../middleware/access";
-import { MAX_DAILY_LIMIT, countTodaySessions, getDailyLimit, setDailyLimit } from "../services/settings";
+import { ensureDatabaseTables } from "../presets";
+import { countTodaySessions, getDailyLimit, MAX_DAILY_LIMIT, setDailyLimit } from "../services/settings";
+import type { Env } from "../types";
 
 const app = new Hono<{ Bindings: Env; Variables: { adminEmail: string } }>();
 

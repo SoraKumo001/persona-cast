@@ -1,11 +1,11 @@
-import { streamText, generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
-import { Env } from "../types";
+import { generateText, type ModelMessage, streamText } from "ai";
+import type { Env } from "../types";
 import { trackEvent } from "./analytics-track";
 
 export interface ChatMessage {
-  role: "system" | "user" | "assistant";
   content: string;
+  role: "system" | "user" | "assistant";
 }
 
 export interface StreamChunk {
@@ -21,10 +21,10 @@ function getOpenCodeProvider(env: Env, sessionId: string) {
   const baseUrl = env.OPENCODE_BASE_URL || "https://opencode.ai/inference/go/openai/v1";
 
   return createOpenAI({
-    baseURL: baseUrl.replace(/\/+$/, ""),
+    baseURL: baseUrl.replace(/\/+$/u, ""),
     apiKey: apiKey || "",
     headers: {
-      "x-opencode-session": `ses_${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}`,
+      "x-opencode-session": `ses_${sessionId.replace(/[^a-zA-Z0-9_-]/gu, "_")}`,
     },
   });
 }
@@ -34,15 +34,23 @@ function splitSystem(messages: ChatMessage[]) {
   const system = messages.filter((m) => m.role === "system").map((m) => m.content);
   return {
     instructions: system.length > 0 ? system.join("\n\n") : undefined,
-    messages: messages.filter((m) => m.role !== "system") as any,
+    messages: messages.filter((m) => m.role !== "system") as ModelMessage[],
   };
 }
 
 /** プロンプトキャッシュの効き具合を確認するためのログ (入力トークンのうちキャッシュから読めた分) */
-function logUsage(env: Env, label: string, usage: { inputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } } | undefined) {
-  if (!usage?.inputTokens) return;
+function logUsage(
+  env: Env,
+  label: string,
+  usage: { inputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } } | undefined
+) {
+  if (!usage?.inputTokens) {
+    return;
+  }
   const cached = usage.inputTokenDetails?.cacheReadTokens ?? 0;
-  console.log(`[llm] ${label} input=${usage.inputTokens} cached=${cached} (${Math.round((cached / usage.inputTokens) * 100)}%)`);
+  console.log(
+    `[llm] ${label} input=${usage.inputTokens} cached=${cached} (${Math.round((cached / usage.inputTokens) * 100)}%)`
+  );
   trackEvent(env, "llm_usage", { value: usage.inputTokens, extra: cached });
 }
 
@@ -82,7 +90,9 @@ export async function* streamChatCompletion(
   for await (const chunk of result.textStream) {
     yield chunk;
   }
-  if (streamError) throw streamError;
+  if (streamError) {
+    throw streamError;
+  }
   try {
     logUsage(env, "stream", await result.usage);
   } catch {
@@ -128,7 +138,7 @@ export async function generateChatCompletion(
  * APIキー未設定時のローカル動作確認用シミュレーター
  */
 async function* simulateDialogueResponse(messages: ChatMessage[]): AsyncGenerator<string, void, unknown> {
-  const lastUserMsg = messages[messages.length - 1]?.content || "";
+  const lastUserMsg = messages.at(-1)?.content || "";
   const isKen = lastUserMsg.includes("ケン");
   const isYuki = lastUserMsg.includes("ユキ");
 
@@ -145,7 +155,7 @@ async function* simulateDialogueResponse(messages: ChatMessage[]): AsyncGenerato
   }
 
   // タイピング感を出すため少しずつチャンク配信
-  const parts = mockResponse.match(/.{1,6}/g) || [mockResponse];
+  const parts = mockResponse.match(/.{1,6}/gu) || [mockResponse];
   for (const part of parts) {
     yield part;
     await new Promise((resolve) => setTimeout(resolve, 60));

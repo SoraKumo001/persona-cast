@@ -4,7 +4,7 @@
  * 値を SQL に埋め込まないので、SQL インジェクションの余地がない。
  * 列の意味は analytics-track.ts の先頭コメントを参照。
  */
-import { Env } from "../types";
+import type { Env } from "../types";
 import { DATASET } from "./analytics-track";
 
 export type RangeKey = "24h" | "7d" | "30d";
@@ -12,9 +12,9 @@ export type RangeKey = "24h" | "7d" | "30d";
 interface RangeSpec {
   /** INTERVAL '{amount}' {unit} で何時間/何日前までを集計するか */
   amount: number;
-  unit: "HOUR" | "DAY";
   /** グラフの1本が表す時間 */
   bucket: "HOUR" | "DAY";
+  unit: "HOUR" | "DAY";
 }
 
 export const RANGES: Record<RangeKey, RangeSpec> = {
@@ -24,7 +24,7 @@ export const RANGES: Record<RangeKey, RangeSpec> = {
 };
 
 export function isRangeKey(value: unknown): value is RangeKey {
-  return typeof value === "string" && Object.prototype.hasOwnProperty.call(RANGES, value);
+  return typeof value === "string" && Object.hasOwn(RANGES, value);
 }
 
 export type QueryName =
@@ -80,21 +80,21 @@ export function num(value: unknown): number {
 }
 
 export interface AnalyticsReport {
-  range: RangeKey;
   bucket: "HOUR" | "DAY";
-  totals: { pageviews: number; visitors: number; botPageviews: number };
-  series: { t: string; pageviews: number; visitors: number }[];
-  topDialogues: { id: string; count: number }[];
-  topPages: { route: string; count: number }[];
-  referrers: { host: string; count: number }[];
+  cache: { hit: number; miss: number; none: number; hitRate: number | null };
   countries: { country: string; count: number }[];
   devices: { device: string; count: number }[];
-  status: { cls: string; count: number }[];
-  cache: { hit: number; miss: number; none: number; hitRate: number | null };
-  latency: { p50: number; p95: number } | null;
   events: { name: string; count: number }[];
-  llm: { calls: number; inputTokens: number; cachedTokens: number; cacheRate: number | null };
+  latency: { p50: number; p95: number } | null;
   limited: { route: string; count: number }[];
+  llm: { calls: number; inputTokens: number; cachedTokens: number; cacheRate: number | null };
+  range: RangeKey;
+  referrers: { host: string; count: number }[];
+  series: { t: string; pageviews: number; visitors: number }[];
+  status: { cls: string; count: number }[];
+  topDialogues: { id: string; count: number }[];
+  topPages: { route: string; count: number }[];
+  totals: { pageviews: number; visitors: number; botPageviews: number };
 }
 
 /** SQL の結果 (行の配列) を、画面に渡す形にそろえる。取れなかった項目は空として扱う */
@@ -103,7 +103,9 @@ export function buildReport(range: RangeKey, rows: Partial<Record<QueryName, Row
   const list = (name: QueryName): Row[] => rows[name] ?? [];
 
   const cacheCounts = { HIT: 0, MISS: 0, NONE: 0 } as Record<string, number>;
-  for (const r of list("cache")) cacheCounts[String(r.cache)] = num(r.count);
+  for (const r of list("cache")) {
+    cacheCounts[String(r.cache)] = num(r.count);
+  }
   const cacheable = cacheCounts.HIT + cacheCounts.MISS;
 
   const llm = first("llm");
@@ -132,9 +134,17 @@ export function buildReport(range: RangeKey, rows: Partial<Record<QueryName, Row
       none: cacheCounts.NONE,
       hitRate: cacheable > 0 ? cacheCounts.HIT / cacheable : null,
     },
-    latency: rows.latency && rows.latency.length > 0 ? { p50: Math.round(num(latency.p50)), p95: Math.round(num(latency.p95)) } : null,
+    latency:
+      rows.latency && rows.latency.length > 0
+        ? { p50: Math.round(num(latency.p50)), p95: Math.round(num(latency.p95)) }
+        : null,
     events: list("events").map((r) => ({ name: String(r.name), count: num(r.count) })),
-    llm: { calls: num(llm.calls), inputTokens: input, cachedTokens: cached, cacheRate: input > 0 ? cached / input : null },
+    llm: {
+      calls: num(llm.calls),
+      inputTokens: input,
+      cachedTokens: cached,
+      cacheRate: input > 0 ? cached / input : null,
+    },
     limited: list("limited").map((r) => ({ route: String(r.route), count: num(r.count) })),
   };
 }
@@ -152,7 +162,9 @@ export async function runSql(env: Env, sql: string): Promise<Row[]> {
     signal: AbortSignal.timeout(15_000),
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Analytics SQL API ${res.status}: ${text.slice(0, 300)}`);
+  if (!res.ok) {
+    throw new Error(`Analytics SQL API ${res.status}: ${text.slice(0, 300)}`);
+  }
   const json = JSON.parse(text) as { data?: Row[] };
   return json.data ?? [];
 }
@@ -166,8 +178,11 @@ export async function fetchReport(env: Env, range: RangeKey): Promise<{ report: 
   const rows: Partial<Record<QueryName, Row[]>> = {};
   const errors: string[] = [];
   settled.forEach((s, i) => {
-    if (s.status === "fulfilled") rows[names[i]] = s.value;
-    else errors.push(`${names[i]}: ${s.reason instanceof Error ? s.reason.message : String(s.reason)}`);
+    if (s.status === "fulfilled") {
+      rows[names[i]] = s.value;
+    } else {
+      errors.push(`${names[i]}: ${s.reason instanceof Error ? s.reason.message : String(s.reason)}`);
+    }
   });
   return { report: buildReport(range, rows), errors };
 }

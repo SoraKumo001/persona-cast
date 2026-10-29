@@ -1,66 +1,86 @@
+/** Workers AI のうち、使っている部分だけの型 (埋め込みの生成) */
+export interface AiBinding {
+  run: (model: string, input: { text: string[] }) => Promise<{ data?: number[][] }>;
+}
+
+export interface VectorizeMatch {
+  id: string;
+  metadata?: Record<string, string | undefined>;
+  score: number;
+}
+
+/** Vectorize のうち、使っている部分だけの型 (類似検索と登録) */
+export interface VectorizeBinding {
+  query: (
+    vector: number[],
+    options: { topK: number; returnMetadata?: "all" | "indexed" | "none" }
+  ) => Promise<{ matches?: VectorizeMatch[] }>;
+  upsert: (vectors: { id: string; metadata?: Record<string, string>; values: number[] }[]) => Promise<unknown>;
+}
+
 export interface Env {
-  DB: D1Database;
-  AI?: any; // Cloudflare Workers AI binding
-  VECTORIZE?: any; // Cloudflare Vectorize binding
-  ASSETS: Fetcher; // Static assets fetcher in Cloudflare Workers
-  AVATARS?: R2Bucket; // ペルソナのアバター画像
-  ANALYTICS?: AnalyticsEngineDataset; // アクセス状況の記録 (Workers Analytics Engine)
-  ANALYTICS_SALT?: string; // 訪問者ハッシュのソルト (未設定なら固定値)
-  CF_ACCOUNT_ID?: string; // アクセス状況の集計 (Analytics Engine SQL API) に使う
-  CF_API_TOKEN?: string; // 権限は「アカウント > Account Analytics > 読み取り」だけにする
-  WEB_ANALYTICS_TOKEN?: string; // Cloudflare Web Analytics のビーコンのトークン (空なら出さない)
-  ACCESS_TEAM_DOMAIN?: string; // 例: your-team.cloudflareaccess.com
   ACCESS_AUD?: string; // Cloudflare Access アプリケーションの AUD タグ
   ACCESS_DISABLED?: string; // "true" かつ localhost のときのみ検証をスキップ (開発用)
+  ACCESS_TEAM_DOMAIN?: string; // 例: your-team.cloudflareaccess.com
+  AI?: AiBinding; // Cloudflare Workers AI binding
+  ANALYTICS?: AnalyticsEngineDataset; // アクセス状況の記録 (Workers Analytics Engine)
+  ANALYTICS_SALT?: string; // 訪問者ハッシュのソルト (未設定なら固定値)
+  ASSETS: Fetcher; // Static assets fetcher in Cloudflare Workers
+  AVATARS?: R2Bucket; // ペルソナのアバター画像
+  CF_ACCOUNT_ID?: string; // アクセス状況の集計 (Analytics Engine SQL API) に使う
+  CF_API_TOKEN?: string; // 権限は「アカウント > Account Analytics > 読み取り」だけにする
+  DB: D1Database;
+  EMBEDDING_MODEL?: string;
   OPENCODE_API_KEY?: string;
   OPENCODE_BASE_URL?: string;
   OPENCODE_DEFAULT_MODEL?: string;
-  EMBEDDING_MODEL?: string;
+  VECTORIZE?: VectorizeBinding; // Cloudflare Vectorize binding
+  WEB_ANALYTICS_TOKEN?: string; // Cloudflare Web Analytics のビーコンのトークン (空なら出さない)
 }
 
 export interface Persona {
-  id: string;
-  name: string;
-  role: string;
+  archivedAt?: string | null;
   avatar: string; // 絵文字（avatarType が image のときはフォールバック）
   avatarType?: "emoji" | "image";
   avatarUrl?: string | null; // 画像アバターの配信URL (avatarType === "image")
-  themeColor: string; // TailwindカラークラスやHEX
-  personality: string; // 性格・価値観プロンプト
-  speakingStyle: string; // 口調・一人称・語尾
   createdAt?: string;
+  id: string;
+  name: string;
+  personality: string; // 性格・価値観プロンプト
+  role: string;
+  speakingStyle: string; // 口調・一人称・語尾
+  themeColor: string; // TailwindカラークラスやHEX
   updatedAt?: string | null;
-  archivedAt?: string | null;
 }
 
 export interface DialogueSession {
-  id: string;
-  sourceUrl: string;
-  articleTitle: string;
   articleSummary: string;
-  personaIds: string[]; // JSON文字列で保存
+  articleTitle: string;
   createdAt: string;
+  id: string;
+  personaIds: string[]; // JSON文字列で保存
+  sourceUrl: string;
 }
 
 export interface Message {
-  id: string;
-  sessionId: string;
-  personaId: string;
-  turnIndex: number;
   content: string;
-  referencedSessionId?: string | null;
-  referencedArticleTitle?: string | null;
   createdAt: string;
+  id: string;
+  personaId: string;
+  referencedArticleTitle?: string | null;
+  referencedSessionId?: string | null;
+  sessionId: string;
+  turnIndex: number;
 }
 
 export interface MemoryChunk {
-  id: string;
-  sessionId: string;
   articleTitle: string;
-  sourceUrl: string;
-  topicSummary: string;
+  createdAt: string;
+  embeddingJson?: string | null;
+  id: string;
   keyQuotes: string;
   personaIds: string[];
-  embeddingJson?: string | null;
-  createdAt: string;
+  sessionId: string;
+  sourceUrl: string;
+  topicSummary: string;
 }

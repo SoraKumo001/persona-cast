@@ -1,15 +1,24 @@
-import React from "react";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { BrainCircuit, CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
+import React from "react";
 import { OgpCard } from "../client/components/OgpCard";
 import { PersonaAvatar } from "../client/components/PersonaAvatar";
+import {
+  type ChatMessage,
+  formatDateTime,
+  type PastMemory,
+  type Persona,
+  type SessionSummary,
+} from "../client/lib/api";
 import { getSessionMeta } from "../server-fns/session-meta";
 import { getSessionDetailFn } from "../server-fns/sessions";
-import { ChatMessage, PastMemory, Persona, SessionSummary, formatDateTime } from "../client/lib/api";
 
 export const Route = createFileRoute("/s/$id")({
   loader: async ({ params }) => {
-    const [meta, detail] = await Promise.all([getSessionMeta({ data: params.id }), getSessionDetailFn({ data: params.id })]);
+    const [meta, detail] = await Promise.all([
+      getSessionMeta({ data: params.id }),
+      getSessionDetailFn({ data: params.id }),
+    ]);
     return { meta, detail };
   },
   head: ({ loaderData }) =>
@@ -56,12 +65,12 @@ function ShareOnX({ url, title }: { url: string; title: string }) {
   const href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
   return (
     <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
       className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-100 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+      href={href}
+      rel="noopener noreferrer"
+      target="_blank"
     >
-      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-current" aria-hidden="true">
+      <svg aria-hidden="true" className="h-3.5 w-3.5 fill-current" viewBox="0 0 24 24">
         <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
       </svg>
       Xでシェア
@@ -75,7 +84,14 @@ function SessionPage() {
   const { id } = Route.useParams();
   const { detail, meta } = Route.useLoaderData();
   // 別の対談に移ったら状態ごと作り直す
-  return <SessionView key={id} id={id} detail={detail} pageUrl={meta?.pageUrl ?? null} />;
+  return <SessionView detail={detail} id={id} key={id} pageUrl={meta?.pageUrl ?? null} />;
+}
+
+function initialStatus(hasSession: boolean, savedCount: number): Status {
+  if (!hasSession) {
+    return "error";
+  }
+  return savedCount > 0 ? "done" : "loading";
 }
 
 function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | null; pageUrl: string | null }) {
@@ -84,7 +100,7 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
   const [participants, setParticipants] = React.useState<Persona[]>((detail?.participants ?? []) as Persona[]);
   // 保存済みの対談はそのまま表示する (再生成しない)
   const [messages, setMessages] = React.useState<ChatMessage[]>(() =>
-    saved.map((m: any) => ({
+    saved.map((m) => ({
       turnIndex: m.turnIndex,
       personaId: m.personaId,
       name: m.personaName || "ペルソナ",
@@ -100,14 +116,17 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
   );
   const [pastMemories, setPastMemories] = React.useState<PastMemory[]>([]);
   const [speakerId, setSpeakerId] = React.useState<string | null>(null);
-  const [status, setStatus] = React.useState<Status>(!session ? "error" : saved.length > 0 ? "done" : "loading");
+  const [status, setStatus] = React.useState<Status>(initialStatus(Boolean(session), saved.length));
   const [error, setError] = React.useState<string | null>(null);
   const bottomRef = React.useRef<HTMLDivElement>(null);
   const stickToBottom = React.useRef(true);
 
   // 未生成の対談だけ、SSEで生成を始める
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 生成は id が変わったときだけ始める (session と saved は id から決まる)
   React.useEffect(() => {
-    if (!session || saved.length > 0) return;
+    if (!session || saved.length > 0) {
+      return;
+    }
     let source: EventSource | null = null;
     setStatus("streaming");
     source = new EventSource(`/api/sessions/${id}/stream`);
@@ -116,7 +135,9 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
     source.addEventListener("session_start", (e) => {
       const evt = parse(e);
       setPastMemories(evt.pastMemories ?? []);
-      if (Array.isArray(evt.personas)) setParticipants(evt.personas);
+      if (Array.isArray(evt.personas)) {
+        setParticipants(evt.personas);
+      }
     });
     source.addEventListener("turn_start", (e) => {
       const evt = parse(e);
@@ -152,14 +173,13 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
     });
     // サーバーが送る error イベント (data あり) と、接続断 (data なし) の両方を扱う
     source.addEventListener("error", (e) => {
-      const data = (e as MessageEvent).data;
+      const { data } = e as MessageEvent;
       setError(data ? JSON.parse(data).message : "接続が切れました。");
       setSpeakerId(null);
       setStatus("error");
       source?.close();
     });
     return () => source?.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   // 末尾付近を見ている間だけ自動スクロールする
@@ -170,15 +190,18 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 発言が増えるたびに末尾へスクロールするため、messages を依存に入れる
   React.useEffect(() => {
-    if (status === "streaming" && stickToBottom.current) bottomRef.current?.scrollIntoView({ block: "end" });
+    if (status === "streaming" && stickToBottom.current) {
+      bottomRef.current?.scrollIntoView({ block: "end" });
+    }
   }, [messages, status]);
 
   if (!session) {
     return (
       <div className="space-y-3 py-24 text-center">
         <p className="text-zinc-300">{error ?? "対談が見つかりません"}</p>
-        <Link to="/" className="text-sm text-indigo-300 hover:text-indigo-200">
+        <Link className="text-sm text-indigo-300 hover:text-indigo-200" to="/">
           新しい対談を始める
         </Link>
       </div>
@@ -188,48 +211,48 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center justify-between gap-3">
-        <nav className="flex items-center gap-2 text-xs text-zinc-400" aria-label="パンくず">
-          <Link to="/" className="hover:text-zinc-200">
+        <nav aria-label="パンくず" className="flex items-center gap-2 text-xs text-zinc-400">
+          <Link className="hover:text-zinc-200" to="/">
             対談一覧
           </Link>
-          {session.genre && (
+          {session.genre ? (
             <>
               <span aria-hidden>/</span>
               <Link
-                to="/"
-                search={{ genre: session.genre }}
                 className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-indigo-200 hover:bg-indigo-500/25"
+                search={{ genre: session.genre }}
+                to="/"
               >
                 {session.genre}
               </Link>
             </>
-          )}
+          ) : null}
         </nav>
-        {status === "done" && pageUrl && session && <ShareOnX url={pageUrl} title={session.articleTitle} />}
+        {status === "done" && pageUrl && session && <ShareOnX title={session.articleTitle} url={pageUrl} />}
       </div>
 
       <OgpCard
-        url={session.sourceUrl}
-        title={session.articleTitle}
-        summary={session.summary ?? session.articleSummary.slice(0, 200)}
         ogp={session.ogp}
+        summary={session.summary ?? session.articleSummary.slice(0, 200)}
+        title={session.articleTitle}
+        url={session.sourceUrl}
       />
 
       <div className="flex items-center justify-between gap-3">
-        <ul className="flex items-center -space-x-1" aria-label="参加者">
+        <ul aria-label="参加者" className="flex items-center -space-x-1">
           {participants.map((p) => (
             <li key={p.id}>
-              <PersonaAvatar {...p} size={36} active={speakerId === p.id} />
+              <PersonaAvatar {...p} active={speakerId === p.id} size={36} />
             </li>
           ))}
         </ul>
         <div className="flex flex-col items-end gap-0.5 text-xs text-zinc-400">
           {formatDateTime(session.createdAt) && (
-            <time dateTime={session.createdAt} className="text-zinc-500">
+            <time className="text-zinc-500" dateTime={session.createdAt}>
               {formatDateTime(session.createdAt)} 生成
             </time>
           )}
-          <p className="flex items-center gap-1.5" aria-live="polite">
+          <p aria-live="polite" className="flex items-center gap-1.5">
             {status === "streaming" && (
               <>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" /> 対談中…
@@ -254,9 +277,9 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
             {pastMemories.map((m) => (
               <li key={m.sessionId}>
                 <Link
-                  to="/s/$id"
-                  params={{ id: m.sessionId }}
                   className="block rounded-lg px-2 py-1.5 hover:bg-zinc-800/70"
+                  params={{ id: m.sessionId }}
+                  to="/s/$id"
                 >
                   <span className="block font-medium text-zinc-100">{m.articleTitle}</span>
                   <span className="block text-xs text-zinc-400">{m.topicSummary}</span>
@@ -267,58 +290,63 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
         </details>
       )}
 
-      <ol className="space-y-5" aria-label="対談ログ">
+      <ol aria-label="対談ログ" className="space-y-5">
         {messages.map((m) => (
-          <li key={m.turnIndex} className="flex gap-3">
+          <li className="flex gap-3" key={m.turnIndex}>
             <PersonaAvatar
-              name={m.name}
+              active={m.streaming}
               avatar={m.avatar}
               avatarUrl={m.avatarUrl}
-              themeColor={m.themeColor}
+              name={m.name}
               size={40}
-              active={m.streaming}
+              themeColor={m.themeColor}
             />
             <div className="min-w-0 flex-1">
               <p className="mb-1 flex items-baseline gap-2 text-xs">
                 <span className="font-semibold" style={{ color: m.themeColor }}>
                   {m.name}
                 </span>
-                {m.role && <span className="text-zinc-500">{m.role}</span>}
+                {m.role ? <span className="text-zinc-500">{m.role}</span> : null}
               </p>
               <div
-                className="whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm leading-relaxed text-zinc-100"
+                className="rounded-2xl rounded-tl-sm border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap text-zinc-100"
                 style={{ borderLeft: `3px solid ${m.themeColor}` }}
               >
                 {m.content || <span className="text-zinc-500">…</span>}
-                {m.streaming && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-zinc-400 align-middle" />}
+                {m.streaming ? (
+                  <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-zinc-400 align-middle" />
+                ) : null}
               </div>
-              {m.referencedArticleTitle && (
+              {m.referencedArticleTitle ? (
                 <p className="mt-1.5 flex items-center gap-1 text-xs text-indigo-300">
                   <BrainCircuit className="h-3 w-3" />
                   {m.referencedSessionId ? (
-                    <Link to="/s/$id" params={{ id: m.referencedSessionId }} className="hover:underline">
+                    <Link className="hover:underline" params={{ id: m.referencedSessionId }} to="/s/$id">
                       「{m.referencedArticleTitle}」の対談を参照
                     </Link>
                   ) : (
                     <span>「{m.referencedArticleTitle}」を参照</span>
                   )}
                 </p>
-              )}
+              ) : null}
             </div>
           </li>
         ))}
       </ol>
 
-      {error && (
-        <p role="alert" className="flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+      {error ? (
+        <p
+          className="flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200"
+          role="alert"
+        >
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
           {error}
         </p>
-      )}
+      ) : null}
 
       {status === "done" && (
         <div className="pt-2 text-center">
-          <Link to="/" className="text-sm text-indigo-300 hover:text-indigo-200">
+          <Link className="text-sm text-indigo-300 hover:text-indigo-200" to="/">
             別のURLで対談する
           </Link>
         </div>

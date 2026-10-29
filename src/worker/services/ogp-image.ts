@@ -1,15 +1,15 @@
-import { Env } from "../types";
+import type { Env } from "../types";
 
 /** テンプレートを変えたらインクリメントし、R2のキャッシュを無効化する */
 const TEMPLATE_VERSION = "v3";
 
 export interface OgpPersona {
-  id: string;
-  name: string;
   avatar: string;
-  themeColor: string;
   /** 画像アバターの data URI (なければ絵文字で描く) */
   avatarDataUri?: string | null;
+  id: string;
+  name: string;
+  themeColor: string;
 }
 
 export interface OgpQuote {
@@ -18,41 +18,47 @@ export interface OgpQuote {
 }
 
 export interface OgpImageData {
-  title: string;
-  summary: string;
-  sourceUrl: string;
-  siteName?: string | null;
   genre?: string | null;
-  participantCount: number;
   messageCount: number;
+  participantCount: number;
   quotes: OgpQuote[];
+  siteName?: string | null;
+  sourceUrl: string;
+  summary: string;
+  title: string;
 }
 
 function hostOf(url: string): string {
   try {
-    return new URL(url).hostname.replace(/^www\./, "");
+    return new URL(url).hostname.replace(/^www\./u, "");
   } catch {
     return url;
   }
 }
 
+const HTML_ESCAPES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
 export function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+  return s.replace(/[&<>"']/gu, (c) => HTML_ESCAPES[c] ?? c);
 }
 
 /** CSSの色として安全な #RRGGBB だけ通す (テーマ色はDB由来のためHTMLに埋める前に検証) */
 function safeColor(c: string): string {
-  return /^#[0-9a-fA-F]{6}$/.test(c) ? c : "#6366f1";
+  return /^#[0-9a-fA-F]{6}$/u.test(c) ? c : "#6366f1";
 }
 
 /** 発言を短い引用にする: 空白を詰め、最初の1〜2文を上限文字数で切る */
 export function excerpt(text: string, max = 64): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  if (flat.length <= max) return flat;
-  const sentences = flat.match(/[^。！？!?]+[。！？!?]?/g) ?? [flat];
+  const flat = text.replace(/\s+/gu, " ").trim();
+  if (flat.length <= max) {
+    return flat;
+  }
+  const sentences = flat.match(/[^。！？!?]+[。！？!?]?/gu) ?? [flat];
   let out = "";
   for (const s of sentences) {
-    if ((out + s).length > max) break;
+    if ((out + s).length > max) {
+      break;
+    }
     out += s;
   }
   return (out || flat.slice(0, max - 1)).trim() + (out === flat ? "" : "…");
@@ -63,10 +69,14 @@ export function pickQuotes<T extends { personaId: string; content: string }>(mes
   const seen = new Set<string>();
   const picked: T[] = [];
   for (const m of messages) {
-    if (!m.content.trim() || seen.has(m.personaId)) continue;
+    if (!m.content.trim() || seen.has(m.personaId)) {
+      continue;
+    }
     seen.add(m.personaId);
     picked.push(m);
-    if (picked.length >= limit) break;
+    if (picked.length >= limit) {
+      break;
+    }
   }
   return picked;
 }
@@ -95,7 +105,8 @@ export function buildOgpHtml(d: OgpImageData): string {
     })
     .join("\n");
 
-  const stats = d.messageCount > 0 ? `${d.participantCount}人が${d.messageCount}発言で対談` : `${d.participantCount}人が対談`;
+  const stats =
+    d.messageCount > 0 ? `${d.participantCount}人が${d.messageCount}発言で対談` : `${d.participantCount}人が対談`;
 
   return `<div style="width:1200px;height:630px;box-sizing:border-box;padding:44px 56px;display:flex;flex-direction:column;justify-content:space-between;background:linear-gradient(135deg,#ffffff 0%,#e8ecff 100%);color:#0f172a;font-family:'Noto Sans JP',sans-serif;">
   <div style="display:flex;justify-content:space-between;align-items:center;font-size:22px;color:#4f46e5;">
@@ -118,28 +129,55 @@ ${quotes}
 
 function toBase64(bytes: Uint8Array): string {
   let bin = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  for (let i = 0; i < bytes.length; i += 0x80_00) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x80_00));
   }
   return btoa(bin);
 }
 
 async function loadAvatarDataUri(env: Env, key: string | null | undefined): Promise<string | null> {
-  if (!key || !env.AVATARS) return null;
+  if (!(key && env.AVATARS)) {
+    return null;
+  }
   const obj = await env.AVATARS.get(key);
-  if (!obj) return null;
+  if (!obj) {
+    return null;
+  }
   const type = obj.httpMetadata?.contentType || "image/png";
   return `data:${type};base64,${toBase64(new Uint8Array(await obj.arrayBuffer()))}`;
 }
 
+interface OgpSessionRow {
+  article_summary: string;
+  article_title: string;
+  genre: string | null;
+  id: string;
+  og_json: string | null;
+  persona_ids: string;
+  source_url: string;
+  summary: string | null;
+}
+
+interface OgpPersonaRow {
+  avatar: string;
+  avatar_key: string | null;
+  avatar_type: string | null;
+  id: string;
+  name: string;
+  theme_color: string;
+  updated_at?: string | null;
+}
+
 /** 対談セッションのOGP画像(PNG)を返す。内容(発言数)ごとにR2へキャッシュする */
 export async function getSessionOgpImage(env: Env, sessionId: string): Promise<Uint8Array | null> {
-  const session: any = await env.DB.prepare(
+  const session = await env.DB.prepare(
     "SELECT id, source_url, article_title, article_summary, summary, genre, og_json, persona_ids FROM sessions WHERE id = ?"
   )
     .bind(sessionId)
-    .first();
-  if (!session) return null;
+    .first<OgpSessionRow>();
+  if (!session) {
+    return null;
+  }
 
   const { results: messages } = await env.DB.prepare(
     "SELECT persona_id as personaId, content FROM messages WHERE session_id = ? ORDER BY turn_index ASC"
@@ -150,7 +188,9 @@ export async function getSessionOgpImage(env: Env, sessionId: string): Promise<U
   // 発言数が変わればキーも変わるため、対談の途中状態が固定化されることはない
   const cacheKey = `ogp/${sessionId}/${TEMPLATE_VERSION}-${messages.length}.png`;
   const cached = await env.AVATARS?.get(cacheKey);
-  if (cached) return new Uint8Array(await cached.arrayBuffer());
+  if (cached) {
+    return new Uint8Array(await cached.arrayBuffer());
+  }
 
   const personaIds: string[] = JSON.parse(session.persona_ids || "[]");
   const placeholders = personaIds.map(() => "?").join(",") || "''";
@@ -158,13 +198,15 @@ export async function getSessionOgpImage(env: Env, sessionId: string): Promise<U
     `SELECT id, name, avatar, avatar_type, avatar_key, theme_color FROM personas WHERE id IN (${placeholders})`
   )
     .bind(...personaIds)
-    .all<any>();
-  const personas = new Map<string, any>(personaRows.map((p) => [p.id, p]));
+    .all<OgpPersonaRow>();
+  const personas = new Map<string, OgpPersonaRow>(personaRows.map((p) => [p.id, p]));
 
   const quotes: OgpQuote[] = [];
   for (const m of pickQuotes(messages)) {
     const p = personas.get(m.personaId);
-    if (!p) continue;
+    if (!p) {
+      continue;
+    }
     quotes.push({
       text: m.content,
       persona: {
@@ -216,7 +258,7 @@ export function buildSiteOgpHtml(d: SiteOgpData): string {
     .map(
       (p) => `<div style="display:flex;flex-direction:column;align-items:center;gap:12px;width:180px;">
   ${avatarHtml(p, 112)}
-  <div style="font-size:24px;font-weight:700;color:${safeColor(p.themeColor)};text-align:center;max-width:180px;overflow:hidden;white-space:nowrap;">${escapeHtml(p.name.replace(/\s*[(（].*$/, ""))}</div>
+  <div style="font-size:24px;font-weight:700;color:${safeColor(p.themeColor)};text-align:center;max-width:180px;overflow:hidden;white-space:nowrap;">${escapeHtml(p.name.replace(/\s*[(（].*$/u, ""))}</div>
 </div>`
     )
     .join("\n");
@@ -238,8 +280,11 @@ ${cast}
 
 /** 出演者の構成が変わったらキーも変わるようにするための短いハッシュ */
 function fingerprint(parts: string[]): string {
-  let h = 2166136261;
-  for (const ch of parts.join("|")) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  let h = 2_166_136_261;
+  for (const ch of parts.join("|")) {
+    // biome-ignore lint/suspicious/noBitwiseOperators: FNV-1a ハッシュの計算
+    h = Math.imul(h ^ ch.charCodeAt(0), 16_777_619) >>> 0;
+  }
   return h.toString(36);
 }
 
@@ -247,11 +292,13 @@ function fingerprint(parts: string[]): string {
 export async function getSiteOgpImage(env: Env): Promise<Uint8Array> {
   const { results: rows } = await env.DB.prepare(
     "SELECT id, name, avatar, avatar_type, avatar_key, theme_color, updated_at FROM personas WHERE archived_at IS NULL ORDER BY created_at ASC LIMIT 5"
-  ).all<any>();
+  ).all<OgpPersonaRow>();
 
   const cacheKey = `ogp/site/${TEMPLATE_VERSION}-${fingerprint(rows.flatMap((r) => [r.id, r.name, r.avatar_key ?? r.avatar, r.theme_color, r.updated_at ?? ""]))}.png`;
   const cached = await env.AVATARS?.get(cacheKey);
-  if (cached) return new Uint8Array(await cached.arrayBuffer());
+  if (cached) {
+    return new Uint8Array(await cached.arrayBuffer());
+  }
 
   const personas: OgpPersona[] = [];
   for (const r of rows) {

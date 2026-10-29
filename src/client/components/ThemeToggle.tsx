@@ -1,5 +1,5 @@
-import React from "react";
 import { Moon, Sun } from "lucide-react";
+import React from "react";
 
 type Theme = "light" | "dark";
 
@@ -30,11 +30,11 @@ export function ThemeToggle() {
   const toLight = theme === "dark";
   return (
     <button
-      type="button"
-      onClick={toggle}
       aria-label={toLight ? "ライトモードに切り替え" : "ダークモードに切り替え"}
-      title={toLight ? "ライトモードに切り替え" : "ダークモードに切り替え"}
       className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+      onClick={toggle}
+      title={toLight ? "ライトモードに切り替え" : "ダークモードに切り替え"}
+      type="button"
     >
       {toLight ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
     </button>

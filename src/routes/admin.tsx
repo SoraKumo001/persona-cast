@@ -1,4 +1,4 @@
-import { Link, Outlet, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/admin")({
   component: AdminLayout,
@@ -13,13 +13,13 @@ const TABS = [
 function AdminLayout() {
   return (
     <div className="space-y-6">
-      <nav className="flex gap-1 border-b border-zinc-800" aria-label="管理メニュー">
+      <nav aria-label="管理メニュー" className="flex gap-1 border-b border-zinc-800">
         {TABS.map((tab) => (
           <Link
+            activeOptions={{ exact: tab.exact }}
+            className="-mb-px border-b-2 border-transparent px-4 py-2 text-sm whitespace-nowrap text-zinc-400 transition-colors hover:text-zinc-100 data-[status=active]:border-indigo-500 data-[status=active]:text-zinc-50"
             key={tab.to}
             to={tab.to}
-            activeOptions={{ exact: tab.exact }}
-            className="-mb-px whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm text-zinc-400 transition-colors hover:text-zinc-100 data-[status=active]:border-indigo-500 data-[status=active]:text-zinc-50"
           >
             {tab.label}
           </Link>

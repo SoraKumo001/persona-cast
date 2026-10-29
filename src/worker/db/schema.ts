@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const personas = sqliteTable("personas", {
   id: text("id").primaryKey(),
@@ -22,8 +22,12 @@ export const sessions = sqliteTable("sessions", {
 
 export const messages = sqliteTable("messages", {
   id: text("id").primaryKey(),
-  sessionId: text("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
-  personaId: text("persona_id").notNull().references(() => personas.id),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => sessions.id, { onDelete: "cascade" }),
+  personaId: text("persona_id")
+    .notNull()
+    .references(() => personas.id),
   turnIndex: integer("turn_index").notNull(),
   content: text("content").notNull(),
   referencedSessionId: text("referenced_session_id"),
@@ -33,7 +37,9 @@ export const messages = sqliteTable("messages", {
 
 export const memoryChunks = sqliteTable("memory_chunks", {
   id: text("id").primaryKey(), // VectorizeのIDと一致
-  sessionId: text("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => sessions.id, { onDelete: "cascade" }),
   articleTitle: text("article_title").notNull(),
   sourceUrl: text("source_url").notNull(),
   topicSummary: text("topic_summary").notNull(),

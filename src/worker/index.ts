@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { cacheFor } from "./cache";
-import { getSiteOgpImage } from "./services/ogp-image";
-import { Env } from "./types";
-import personasRouter from "./routes/personas";
-import adminPersonasRouter from "./routes/admin-personas";
 import adminAnalyticsRouter from "./routes/admin-analytics";
+import adminPersonasRouter from "./routes/admin-personas";
 import adminSettingsRouter from "./routes/admin-settings";
-import sessionsRouter from "./routes/sessions";
 import memoriesRouter from "./routes/memories";
+import personasRouter from "./routes/personas";
+import sessionsRouter from "./routes/sessions";
+import { getSiteOgpImage } from "./services/ogp-image";
+import type { Env } from "./types";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -38,16 +38,16 @@ app.get("/api/ogp.png", async (c) => {
 });
 
 // システムステータス確認
-app.get("/api/health", (c) => {
-  return c.json({
+app.get("/api/health", (c) =>
+  c.json({
     status: "ok",
     app: "persona-cast",
     hasAiBinding: !!c.env.AI,
     hasVectorizeBinding: !!c.env.VECTORIZE,
     hasApiKey: !!c.env.OPENCODE_API_KEY && c.env.OPENCODE_API_KEY !== "your-opencode-api-key-here",
     defaultModel: c.env.OPENCODE_DEFAULT_MODEL || "deepseek-v4.1-flash",
-  });
-});
+  })
+);
 
 // 静的アセット配信 (React SPA)
 app.all("*", async (c) => {

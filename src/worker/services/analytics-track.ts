@@ -13,69 +13,94 @@
  *   blob8  = 訪問者の識別 (IP+UA+日付のソルト付きハッシュ。日をまたぐと別人扱い。生のIPは保存しない)
  *   double1 = HTTPステータス、double2 = 応答時間(ms)、double3/4 = イベントの数値 (LLMの入力/キャッシュ済みトークン)
  */
-import { Env } from "../types";
+import type { Env } from "../types";
 
 export const DATASET = "persona_cast_events";
 
 export type Device = "pc" | "mobile" | "tablet" | "bot";
 
-const BOT_UA = /bot|crawl|spider|slurp|facebookexternalhit|embedly|preview|monitor|uptime|curl|wget|python-requests|headless|lighthouse/i;
+const BOT_UA =
+  /bot|crawl|spider|slurp|facebookexternalhit|embedly|preview|monitor|uptime|curl|wget|python-requests|headless|lighthouse/iu;
 
 export function classifyDevice(ua: string): Device {
-  if (!ua || BOT_UA.test(ua)) return "bot";
-  if (/ipad|tablet|kindle/i.test(ua) || (/android/i.test(ua) && !/mobile/i.test(ua))) return "tablet";
-  if (/mobi|iphone|ipod|android/i.test(ua)) return "mobile";
+  if (!ua || BOT_UA.test(ua)) {
+    return "bot";
+  }
+  if (/ipad|tablet|kindle/iu.test(ua) || (/android/iu.test(ua) && !/mobile/iu.test(ua))) {
+    return "tablet";
+  }
+  if (/mobi|iphone|ipod|android/iu.test(ua)) {
+    return "mobile";
+  }
   return "pc";
 }
 
 export interface TrackedRoute {
-  type: "pv" | "api";
-  route: string;
   detail: string;
+  route: string;
+  type: "pv" | "api";
 }
 
-const STATIC_EXT = /\.(png|jpe?g|webp|gif|svg|ico|css|js|mjs|map|woff2?|ttf|txt|xml|json)$/i;
+const STATIC_EXT = /\.(png|jpe?g|webp|gif|svg|ico|css|js|mjs|map|woff2?|ttf|txt|xml|json)$/iu;
+
+function isExcludedPath(pathname: string): boolean {
+  const adminPage = pathname === "/admin" || pathname.startsWith("/admin/");
+  const infra = pathname.startsWith("/assets/") || pathname.startsWith("/_serverFn") || pathname === "/api/health";
+  return adminPage || pathname.startsWith("/api/admin/") || infra || STATIC_EXT.test(pathname);
+}
+
+const API_ROUTES: { pattern: RegExp; route: string }[] = [
+  { pattern: /^\/api\/sessions$/u, route: "/api/sessions" },
+  { pattern: /^\/api\/sessions\/[^/]+$/u, route: "/api/sessions/:id" },
+  { pattern: /^\/api\/sessions\/[^/]+\/stream$/u, route: "/api/sessions/:id/stream" },
+  { pattern: /^\/api\/personas$/u, route: "/api/personas" },
+  { pattern: /^\/api\/memories\/search$/u, route: "/api/memories/search" },
+  { pattern: /^\/api\/memories$/u, route: "/api/memories" },
+];
+
+const DIALOGUE_PAGE = /^\/s\/([^/]+)\/?$/u;
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    // 不正なエンコードはそのまま
+    return value;
+  }
+}
 
 /**
  * パスを集計用のルート名にする。対象外 (管理画面・静的ファイルなど) は null。
  * 未知のパスは "other" にまとめ、ランダムなパスを叩くスキャナで種類が増えないようにする。
  */
 export function classifyRoute(pathname: string): TrackedRoute | null {
-  if (pathname === "/admin" || pathname.startsWith("/admin/") || pathname.startsWith("/api/admin/")) return null;
-  if (pathname.startsWith("/assets/") || pathname.startsWith("/_serverFn") || pathname === "/api/health") return null;
-  if (STATIC_EXT.test(pathname)) return null;
+  if (isExcludedPath(pathname)) {
+    return null;
+  }
 
   if (pathname.startsWith("/api/")) {
-    let route = "/api/other";
-    if (pathname === "/api/sessions") route = "/api/sessions";
-    else if (/^\/api\/sessions\/[^/]+$/.test(pathname)) route = "/api/sessions/:id";
-    else if (/^\/api\/sessions\/[^/]+\/stream$/.test(pathname)) route = "/api/sessions/:id/stream";
-    else if (pathname === "/api/personas") route = "/api/personas";
-    else if (pathname === "/api/memories/search") route = "/api/memories/search";
-    else if (pathname === "/api/memories") route = "/api/memories";
+    const route = API_ROUTES.find((r) => r.pattern.test(pathname))?.route ?? "/api/other";
     return { type: "api", route, detail: "" };
   }
 
-  const dialogue = pathname.match(/^\/s\/([^/]+)\/?$/);
+  const dialogue = DIALOGUE_PAGE.exec(pathname);
   if (dialogue) {
-    let id = dialogue[1];
-    try {
-      id = decodeURIComponent(id);
-    } catch {
-      // 不正なエンコードはそのまま
-    }
-    return { type: "pv", route: "/s/:id", detail: id.slice(0, 64) };
+    return { type: "pv", route: "/s/:id", detail: safeDecode(dialogue[1]).slice(0, 64) };
   }
-  if (pathname === "/" || pathname === "/memories") return { type: "pv", route: pathname, detail: "" };
+  if (pathname === "/" || pathname === "/memories") {
+    return { type: "pv", route: pathname, detail: "" };
+  }
   return { type: "pv", route: "other", detail: "" };
 }
 
 /** 参照元のホスト名。自サイト内の遷移や、無い/不正な値は空 */
 export function referrerHost(referer: string | null | undefined, selfHost: string): string {
-  if (!referer) return "";
+  if (!referer) {
+    return "";
+  }
   try {
-    const host = new URL(referer).hostname.replace(/^www\./, "").toLowerCase();
-    return host === selfHost.replace(/^www\./, "").toLowerCase() ? "" : host.slice(0, 64);
+    const host = new URL(referer).hostname.replace(/^www\./u, "").toLowerCase();
+    return host === selfHost.replace(/^www\./u, "").toLowerCase() ? "" : host.slice(0, 64);
   } catch {
     return "";
   }
@@ -93,14 +118,25 @@ export function jstDay(now: Date = new Date()): string {
 }
 
 /** リクエスト1件を記録する。応答は遅らせず、失敗してもアプリの動作に影響させない */
-export function trackRequest(env: Env, ctx: ExecutionContext, request: Request, response: Response, startedAt: number): void {
-  if (!env.ANALYTICS) return;
+export function trackRequest(
+  env: Env,
+  ctx: ExecutionContext,
+  request: Request,
+  response: Response,
+  startedAt: number
+): void {
+  const dataset = env.ANALYTICS;
+  if (!dataset) {
+    return;
+  }
   try {
     const url = new URL(request.url);
     const tracked = classifyRoute(url.pathname);
     if (!tracked || request.method !== "GET") {
       // POST など: API だけは記録する (対談の作成・制限の把握のため)
-      if (!tracked || tracked.type !== "api") return;
+      if (tracked?.type !== "api") {
+        return;
+      }
     } else if (tracked.type === "pv" && !(response.headers.get("content-type") ?? "").includes("text/html")) {
       return;
     }
@@ -116,7 +152,7 @@ export function trackRequest(env: Env, ctx: ExecutionContext, request: Request, 
     ctx.waitUntil(
       visitorHash(ip, ua, jstDay(), env.ANALYTICS_SALT ?? "persona-cast")
         .then((visitor) =>
-          env.ANALYTICS!.writeDataPoint({
+          dataset.writeDataPoint({
             indexes: [tracked.route],
             blobs: [tracked.type, tracked.route, tracked.detail, cache, country, referrer, device, visitor],
             doubles: [response.status, duration, 0, 0],
@@ -130,12 +166,10 @@ export function trackRequest(env: Env, ctx: ExecutionContext, request: Request, 
 }
 
 /** 業務イベント (対談の作成・18禁のブロック・LLM使用量など) を記録する */
-export function trackEvent(
-  env: Env,
-  name: string,
-  values: { value?: number; extra?: number } = {}
-): void {
-  if (!env.ANALYTICS) return;
+export function trackEvent(env: Env, name: string, values: { value?: number; extra?: number } = {}): void {
+  if (!env.ANALYTICS) {
+    return;
+  }
   try {
     env.ANALYTICS.writeDataPoint({
       indexes: ["event"],

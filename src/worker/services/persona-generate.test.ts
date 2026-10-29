@@ -12,7 +12,7 @@ const valid = {
 
 describe("parsePersonaDraft", () => {
   test("前置きやコードブロック付きでもJSONを取り出し、色は小文字に正規化する", () => {
-    const text = "どうぞ\n```json\n" + JSON.stringify(valid) + "\n```";
+    const text = `どうぞ\n\`\`\`json\n${JSON.stringify(valid)}\n\`\`\``;
     expect(parsePersonaDraft(text)).toEqual({ ...valid, themeColor: "#e11d48" });
   });
 
@@ -34,14 +34,16 @@ describe("parsePersonaDraft", () => {
 
   test("長すぎる項目は上限で切る", () => {
     const d = parsePersonaDraft(JSON.stringify({ ...valid, name: "あ".repeat(100), avatar: "x".repeat(50) }));
-    expect(d!.name).toHaveLength(40);
-    expect(d!.avatar).toHaveLength(8);
+    expect(d?.name).toHaveLength(40);
+    expect(d?.avatar).toHaveLength(8);
   });
 });
 
 describe("buildPersonaMessages", () => {
   test("新規生成では指示と既存出演者を含める", () => {
-    const [system, user] = buildPersonaMessages("皮肉屋の編集者", null, [{ name: "ケン", role: "エンジニア", themeColor: "#2563eb" }]);
+    const [system, user] = buildPersonaMessages("皮肉屋の編集者", null, [
+      { name: "ケン", role: "エンジニア", themeColor: "#2563eb" },
+    ]);
     expect(system.content).toContain("ケン (エンジニア) 色: #2563eb");
     expect(user.content).toContain("皮肉屋の編集者");
     expect(user.content).not.toContain("現在:");

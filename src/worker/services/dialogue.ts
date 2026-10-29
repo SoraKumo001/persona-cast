@@ -1,12 +1,23 @@
-import { Env, Persona, DialogueSession, Message } from "../types";
-import { streamChatCompletion, generateChatCompletion } from "./llm";
-import { searchSimilarMemories, saveMemoryChunk, MemorySearchResult } from "./memory";
-import { PERSONA_COLUMNS, toPersona } from "./persona-store";
+import type { PersonaRow } from "../db-types";
+import { errorMessage } from "../errors";
 import { buildConsolidateMessages, buildTurnMessages } from "../prompts";
+import type { Env, Persona } from "../types";
+import { generateChatCompletion, streamChatCompletion } from "./llm";
+import { saveMemoryChunk, searchSimilarMemories } from "./memory";
+import { PERSONA_COLUMNS, toPersona } from "./persona-store";
+
+interface DialogueSessionRow {
+  article_summary: string;
+  article_title: string;
+  created_at: string;
+  id: string;
+  persona_ids: string;
+  source_url: string;
+}
 
 export interface DialogueEvent {
+  data: Record<string, unknown>;
   type: "session_start" | "turn_start" | "chunk" | "turn_end" | "session_end" | "error";
-  data: any;
 }
 
 /**
@@ -15,15 +26,15 @@ export interface DialogueEvent {
 export async function* orchestrateDialogue(
   sessionId: string,
   env: Env,
-  totalTurns: number = 6,
+  totalTurns = 6,
   modelName?: string
 ): AsyncGenerator<DialogueEvent, void, unknown> {
   // 1. セッション情報の取得
-  const sessionRow: any = await env.DB.prepare(
+  const sessionRow = await env.DB.prepare(
     "SELECT id, source_url, article_title, article_summary, persona_ids, created_at FROM sessions WHERE id = ?"
   )
     .bind(sessionId)
-    .first();
+    .first<DialogueSessionRow>();
 
   if (!sessionRow) {
     yield { type: "error", data: { message: "セッションが見つかりません" } };
@@ -42,20 +53,20 @@ export async function* orchestrateDialogue(
     `SELECT ${PERSONA_COLUMNS} FROM personas WHERE id IN (${placeholders})`
   )
     .bind(...personaIds)
-    .all();
+    .all<PersonaRow>();
 
-  const personasMap = new Map<string, any>();
-  for (const p of personaRows as any[]) {
+  const personasMap = new Map<string, Persona>();
+  for (const p of personaRows) {
     personasMap.set(p.id, toPersona(p));
   }
-  const activePersonas = personaIds.map((id) => personasMap.get(id)).filter(Boolean);
+  const activePersonas = personaIds.map((id) => personasMap.get(id)).filter((p): p is Persona => p !== undefined);
 
   // 3. 過去の類似対談記憶（エピソード記憶）を検索
   const pastMemories = await searchSimilarMemories(
     `${sessionRow.article_title}\n${sessionRow.article_summary}`,
     env,
     3,
-    0.50
+    0.5
   );
 
   yield {
@@ -116,11 +127,11 @@ export async function* orchestrateDialogue(
           },
         };
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(`Error generating turn ${turn}:`, err);
       yield {
         type: "error",
-        data: { message: `ターン ${turn + 1} の生成中にエラーが発生しました: ${err.message}` },
+        data: { message: `ターン ${turn + 1} の生成中にエラーが発生しました: ${errorMessage(err)}` },
       };
       return;
     }
@@ -129,10 +140,7 @@ export async function* orchestrateDialogue(
     let referencedSessionId: string | null = null;
     let referencedArticleTitle: string | null = null;
     for (const mem of pastMemories) {
-      if (
-        mem.articleTitle &&
-        fullTurnContent.toLowerCase().includes(mem.articleTitle.toLowerCase().slice(0, 15))
-      ) {
+      if (mem.articleTitle && fullTurnContent.toLowerCase().includes(mem.articleTitle.toLowerCase().slice(0, 15))) {
         referencedSessionId = mem.sessionId;
         referencedArticleTitle = mem.articleTitle;
         break;
@@ -197,24 +205,37 @@ export async function* orchestrateDialogue(
  */
 async function consolidateSessionMemory(
   sessionId: string,
-  sessionRow: any,
-  personas: any[],
+  sessionRow: DialogueSessionRow,
+  personas: Persona[],
   history: { personaName: string; text: string }[],
   env: Env
 ): Promise<void> {
-  if (history.length === 0) return;
+  if (history.length === 0) {
+    return;
+  }
 
   const prompt = buildConsolidateMessages(sessionRow.article_title, history);
 
   let topicSummary = `${sessionRow.article_title}についての議論。`;
-  let keyQuotes = history.slice(0, 2).map((h) => h.text).join(" / ");
+  let keyQuotes = history
+    .slice(0, 2)
+    .map((h) => h.text)
+    .join(" / ");
 
   try {
     const rawResult = await generateChatCompletion(prompt, env, sessionId);
-    const cleaned = rawResult.replace(/```json/g, "").replace(/```/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-    if (parsed.topicSummary) topicSummary = parsed.topicSummary;
-    if (parsed.keyQuotes) keyQuotes = parsed.keyQuotes;
+    const cleaned = rawResult
+      .replace(/```json/gu, "")
+      .replace(/```/gu, "")
+      .trim();
+    const parsed: { topicSummary?: unknown; keyQuotes?: unknown } | null = JSON.parse(cleaned);
+    const { topicSummary: summary, keyQuotes: quotes } = parsed ?? {};
+    if (typeof summary === "string" && summary) {
+      topicSummary = summary;
+    }
+    if (typeof quotes === "string" && quotes) {
+      keyQuotes = quotes;
+    }
   } catch (err) {
     console.warn("LLM summary generation fallback to heuristic:", err);
   }

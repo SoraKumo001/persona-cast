@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { Env } from "../types";
+import type { Env } from "../types";
 
 /**
  * D1 を使った簡易レート制限 (固定ウィンドウ)。公開エンドポイントが LLM・Workers AI を呼ぶため、
@@ -17,7 +17,9 @@ export async function rateLimit(
   offsetSeconds = 0
 ): Promise<Response | null> {
   const ip = c.req.header("CF-Connecting-IP");
-  if (!ip || !c.env.DB) return null;
+  if (!(ip && c.env.DB)) {
+    return null;
+  }
 
   try {
     const nowSec = Math.floor(Date.now() / 1000);
@@ -50,28 +52,34 @@ export async function rateLimit(
  * 先頭64ビット (4グループ) で数える。IPv4 はそのまま。
  */
 export function clientKey(ip: string): string {
-  if (!ip.includes(":")) return ip;
+  if (!ip.includes(":")) {
+    return ip;
+  }
   const [head, tail] = ip.toLowerCase().split("::");
   const headParts = head ? head.split(":") : [];
   const tailParts = tail !== undefined && tail ? tail.split(":") : [];
   const missing = Math.max(8 - headParts.length - tailParts.length, 0);
-  const groups = tail === undefined ? headParts : [...headParts, ...Array(missing).fill("0"), ...tailParts];
-  return groups
+  const groups = tail === undefined ? headParts : [...headParts, ...new Array(missing).fill("0"), ...tailParts];
+  return `${groups
     .slice(0, 4)
-    .map((g) => g.replace(/^0+(?=.)/, ""))
-    .join(":") + "::/64";
+    .map((g) => g.replace(/^0+(?=.)/u, ""))
+    .join(":")}::/64`;
 }
 
 /** クエリ文字列などの数値を範囲内の整数にする。不正なら既定値 */
 export function clampInt(value: string | undefined, min: number, max: number, fallback: number): number {
   const n = Number.parseInt(value ?? "", 10);
-  if (!Number.isFinite(n)) return fallback;
+  if (!Number.isFinite(n)) {
+    return fallback;
+  }
   return Math.min(Math.max(n, min), max);
 }
 
 /** クエリ文字列の 0〜1 の小数。不正なら既定値 */
 export function clampFloat(value: string | undefined, min: number, max: number, fallback: number): number {
   const n = Number.parseFloat(value ?? "");
-  if (!Number.isFinite(n)) return fallback;
+  if (!Number.isFinite(n)) {
+    return fallback;
+  }
   return Math.min(Math.max(n, min), max);
 }

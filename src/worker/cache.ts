@@ -13,11 +13,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 export interface CacheHint {
-  /** エッジ (共有キャッシュ) に置く秒数 */
-  sMaxAge: number;
+  immutable?: boolean;
   /** ブラウザに置く秒数 */
   maxAge: number;
-  immutable?: boolean;
+  /** エッジ (共有キャッシュ) に置く秒数 */
+  sMaxAge: number;
 }
 
 const store = new AsyncLocalStorage<{ hint?: CacheHint }>();
@@ -25,11 +25,17 @@ const store = new AsyncLocalStorage<{ hint?: CacheHint }>();
 /** この応答はキャッシュしてよい、と申告する。キャッシュの外 (テストなど) で呼ばれても何もしない */
 export function cacheFor(sMaxAge: number, options: { maxAge?: number; immutable?: boolean } = {}): void {
   const state = store.getStore();
-  if (!state) return;
+  if (!state) {
+    return;
+  }
   const next: CacheHint = { sMaxAge, maxAge: options.maxAge ?? 0, immutable: options.immutable };
   const cur = state.hint;
   state.hint = cur
-    ? { sMaxAge: Math.min(cur.sMaxAge, next.sMaxAge), maxAge: Math.min(cur.maxAge, next.maxAge), immutable: cur.immutable && next.immutable }
+    ? {
+        sMaxAge: Math.min(cur.sMaxAge, next.sMaxAge),
+        maxAge: Math.min(cur.maxAge, next.maxAge),
+        immutable: cur.immutable && next.immutable,
+      }
     : next;
 }
 
@@ -44,7 +50,9 @@ export function isAdminPath(pathname: string): boolean {
 
 function withHeaders(res: Response, headers: Record<string, string>): Response {
   const out = new Response(res.body, res);
-  for (const [k, v] of Object.entries(headers)) out.headers.set(k, v);
+  for (const [k, v] of Object.entries(headers)) {
+    out.headers.set(k, v);
+  }
   return out;
 }
 
@@ -60,18 +68,26 @@ export async function withEdgeCache(
   }
 
   const cacheable =
-    request.method === "GET" && !request.headers.has("Authorization") && !request.headers.has("Cf-Access-Jwt-Assertion");
+    request.method === "GET" &&
+    !request.headers.has("Authorization") &&
+    !request.headers.has("Cf-Access-Jwt-Assertion");
   const cache = cacheable && typeof caches !== "undefined" ? (caches as unknown as { default: Cache }).default : null;
-  if (!cache) return handler();
+  if (!cache) {
+    return handler();
+  }
 
   // ヘッダ (Cookie など) の違いで分かれないよう、URLだけをキーにする
   const key = new Request(url.toString(), { method: "GET" });
   const hit = await cache.match(key);
-  if (hit) return withHeaders(hit, { "X-Cache": "HIT" });
+  if (hit) {
+    return withHeaders(hit, { "X-Cache": "HIT" });
+  }
 
   const state: { hint?: CacheHint } = {};
   const res = await store.run(state, handler);
-  if (!state.hint || res.status !== 200 || res.headers.has("Set-Cookie")) return res;
+  if (!state.hint || res.status !== 200 || res.headers.has("Set-Cookie")) {
+    return res;
+  }
 
   const out = withHeaders(res, { "Cache-Control": cacheControl(state.hint), "X-Cache": "MISS" });
   ctx.waitUntil(cache.put(key, out.clone()).catch((err) => console.warn("cache.put failed:", err)));

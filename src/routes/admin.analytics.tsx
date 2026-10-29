@@ -1,6 +1,6 @@
-import React from "react";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
+import React from "react";
 import { api } from "../client/lib/api";
 
 export const Route = createFileRoute("/admin/analytics")({
@@ -14,21 +14,21 @@ interface Count {
   count: number;
 }
 interface Report {
-  range: RangeKey;
   bucket: "HOUR" | "DAY";
-  totals: { pageviews: number; visitors: number; botPageviews: number };
-  series: { t: string; pageviews: number; visitors: number }[];
-  topDialogues: (Count & { id: string; title: string | null; genre: string | null })[];
-  topPages: (Count & { route: string })[];
-  referrers: (Count & { host: string })[];
+  cache: { hit: number; miss: number; none: number; hitRate: number | null };
   countries: (Count & { country: string })[];
   devices: (Count & { device: string })[];
-  status: (Count & { cls: string })[];
-  cache: { hit: number; miss: number; none: number; hitRate: number | null };
-  latency: { p50: number; p95: number } | null;
   events: (Count & { name: string })[];
-  llm: { calls: number; inputTokens: number; cachedTokens: number; cacheRate: number | null };
+  latency: { p50: number; p95: number } | null;
   limited: (Count & { route: string })[];
+  llm: { calls: number; inputTokens: number; cachedTokens: number; cacheRate: number | null };
+  range: RangeKey;
+  referrers: (Count & { host: string })[];
+  series: { t: string; pageviews: number; visitors: number }[];
+  status: (Count & { cls: string })[];
+  topDialogues: (Count & { id: string; title: string | null; genre: string | null })[];
+  topPages: (Count & { route: string })[];
+  totals: { pageviews: number; visitors: number; botPageviews: number };
 }
 type AnalyticsResponse =
   | { configured: false; hasDataset: boolean }
@@ -39,7 +39,12 @@ const EVENT_LABELS: Record<string, string> = {
   adult_blocked: "18禁として断った送信",
   daily_limit_reached: "1日の上限で断った送信",
 };
-const DEVICE_LABELS: Record<string, string> = { pc: "PC", mobile: "スマートフォン", tablet: "タブレット", bot: "ボット" };
+const DEVICE_LABELS: Record<string, string> = {
+  pc: "PC",
+  mobile: "スマートフォン",
+  tablet: "タブレット",
+  bot: "ボット",
+};
 const ROUTE_LABELS: Record<string, string> = {
   "/": "トップ",
   "/memories": "記憶検索",
@@ -52,10 +57,12 @@ const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}
 
 /** Analytics Engine の時刻 (UTC, "YYYY-MM-DD HH:MM:SS") を日本時間のラベルにする */
 function bucketLabel(t: string, bucket: "HOUR" | "DAY"): string {
-  const d = new Date(t.replace(" ", "T") + "Z");
-  if (Number.isNaN(d.getTime())) return t;
+  const d = new Date(`${t.replace(" ", "T")}Z`);
+  if (Number.isNaN(d.getTime())) {
+    return t;
+  }
   return bucket === "HOUR"
-    ? d.toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo", hour: "numeric" }).replace(/\s/g, "")
+    ? d.toLocaleTimeString("ja-JP", { timeZone: "Asia/Tokyo", hour: "numeric" }).replace(/\s/gu, "")
     : d.toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric" });
 }
 
@@ -80,40 +87,50 @@ function AnalyticsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-bold">アクセス状況</h1>
-        <div className="flex gap-1" role="group" aria-label="期間">
+        <fieldset className="m-0 flex gap-1 border-0 p-0">
+          <legend className="sr-only">期間</legend>
           {(Object.keys(RANGE_LABELS) as RangeKey[]).map((k) => (
             <button
-              key={k}
-              type="button"
-              onClick={() => setRange(k)}
               aria-pressed={range === k}
               className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
                 range === k
                   ? "border-indigo-500 bg-indigo-500/15 text-indigo-100"
                   : "border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-600"
               }`}
+              key={k}
+              onClick={() => setRange(k)}
+              type="button"
             >
               {RANGE_LABELS[k]}
             </button>
           ))}
-        </div>
+        </fieldset>
       </div>
 
-      {error ? (
-        <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-          {error}
-        </p>
-      ) : !data ? (
-        <p className="flex items-center justify-center gap-2 py-16 text-sm text-zinc-500">
-          <Loader2 className="h-4 w-4 animate-spin" /> 読み込み中…
-        </p>
-      ) : !data.configured ? (
-        <SetupNotice hasDataset={data.hasDataset} />
-      ) : (
-        <ReportView report={data.report} errors={data.errors} />
-      )}
+      <AnalyticsBody data={data} error={error} />
     </div>
   );
+}
+
+function AnalyticsBody({ data, error }: { data: AnalyticsResponse | null; error: string | null }) {
+  if (error) {
+    return (
+      <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200" role="alert">
+        {error}
+      </p>
+    );
+  }
+  if (!data) {
+    return (
+      <p className="flex items-center justify-center gap-2 py-16 text-sm text-zinc-500">
+        <Loader2 className="h-4 w-4 animate-spin" /> 読み込み中…
+      </p>
+    );
+  }
+  if (!data.configured) {
+    return <SetupNotice hasDataset={data.hasDataset} />;
+  }
+  return <ReportView errors={data.errors} report={data.report} />;
 }
 
 function SetupNotice({ hasDataset }: { hasDataset: boolean }) {
@@ -126,7 +143,10 @@ function SetupNotice({ hasDataset }: { hasDataset: boolean }) {
         画面に出すには、次の2つのシークレットを設定してください。
       </p>
       <ol className="list-decimal space-y-1 pl-5">
-        <li>Cloudflare ダッシュボードで、権限が「アカウント &gt; Account Analytics &gt; 読み取り」だけの API トークンを作る</li>
+        <li>
+          Cloudflare ダッシュボードで、権限が「アカウント &gt; Account Analytics &gt; 読み取り」だけの API
+          トークンを作る
+        </li>
         <li>
           <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs">CF_ACCOUNT_ID</code> (アカウントID) と{" "}
           <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs">CF_API_TOKEN</code> を{" "}
@@ -163,14 +183,14 @@ function ReportView({ report, errors }: { report: Report; errors: string[] }) {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="ページビュー" value={nf.format(report.totals.pageviews)} />
-        <Stat label="訪問者 (推定)" value={nf.format(report.totals.visitors)} note="日ごとに数える" />
+        <Stat label="訪問者 (推定)" note="日ごとに数える" value={nf.format(report.totals.visitors)} />
         <Stat label="新しい対談" value={nf.format(created)} />
         <Stat label="制限で断った (429)" value={nf.format(limited)} />
         <Stat label="ボットの閲覧 (除外)" value={nf.format(report.totals.botPageviews)} />
       </div>
 
       <Panel title="ページビューの推移">
-        <BarChart series={report.series} bucket={report.bucket} />
+        <BarChart bucket={report.bucket} series={report.series} />
       </Panel>
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -194,7 +214,11 @@ function ReportView({ report, errors }: { report: Report; errors: string[] }) {
         </Panel>
         <Panel title="ページ別">
           <Ranking
-            items={report.topPages.map((p) => ({ key: p.route, label: ROUTE_LABELS[p.route] ?? p.route, value: p.count }))}
+            items={report.topPages.map((p) => ({
+              key: p.route,
+              label: ROUTE_LABELS[p.route] ?? p.route,
+              value: p.count,
+            }))}
           />
         </Panel>
         <Panel title="国・地域">
@@ -202,12 +226,19 @@ function ReportView({ report, errors }: { report: Report; errors: string[] }) {
         </Panel>
         <Panel title="端末">
           <Ranking
-            items={report.devices.map((d) => ({ key: d.device, label: DEVICE_LABELS[d.device] ?? d.device, value: d.count }))}
+            items={report.devices.map((d) => ({
+              key: d.device,
+              label: DEVICE_LABELS[d.device] ?? d.device,
+              value: d.count,
+            }))}
             total={deviceTotal}
           />
         </Panel>
         <Panel title="応答の状態">
-          <Ranking items={report.status.map((s) => ({ key: s.cls, label: s.cls, value: s.count }))} total={statusTotal} />
+          <Ranking
+            items={report.status.map((s) => ({ key: s.cls, label: s.cls, value: s.count }))}
+            total={statusTotal}
+          />
           <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
             <Metric label="エッジのキャッシュ HIT 率" value={pct(report.cache.hitRate)} />
             <Metric
@@ -229,7 +260,11 @@ function ReportView({ report, errors }: { report: Report; errors: string[] }) {
         <Panel title="制限・上限で断ったリクエスト">
           <Ranking
             empty="ありません"
-            items={report.limited.map((l) => ({ key: l.route, label: ROUTE_LABELS[l.route] ?? l.route, value: l.count }))}
+            items={report.limited.map((l) => ({
+              key: l.route,
+              label: ROUTE_LABELS[l.route] ?? l.route,
+              value: l.count,
+            }))}
           />
         </Panel>
       </div>
@@ -237,7 +272,8 @@ function ReportView({ report, errors }: { report: Report; errors: string[] }) {
       <p className="text-xs text-zinc-500">
         集計は Workers Analytics Engine に記録した値です (保持は約3か月、多いときはサンプリングされます)。
         生のIPは保存せず、訪問者は日ごとのハッシュで数えています。
-        アプリ内の画面遷移はサーバーへのページ取得を伴わないため、ページビューにはサーバーが HTML を返した回数だけが入ります。
+        アプリ内の画面遷移はサーバーへのページ取得を伴わないため、ページビューにはサーバーが HTML
+        を返した回数だけが入ります。
       </p>
     </>
   );
@@ -248,7 +284,7 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
       <p className="text-xs text-zinc-400">{label}</p>
       <p className="mt-1 text-2xl font-semibold text-zinc-50">{value}</p>
-      {note && <p className="mt-0.5 text-[11px] text-zinc-500">{note}</p>}
+      {note ? <p className="mt-0.5 text-[11px] text-zinc-500">{note}</p> : null}
     </div>
   );
 }
@@ -272,16 +308,26 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 interface RankItem {
+  /** 対談ID。指定すると対談ページへのリンクにする */
+  href?: string;
   key: string;
   label: string;
   sub?: string;
   value: number;
-  /** 対談ID。指定すると対談ページへのリンクにする */
-  href?: string;
 }
 
-function Ranking({ items, empty = "データがありません", total }: { items: RankItem[]; empty?: string; total?: number }) {
-  if (items.length === 0) return <p className="py-2 text-sm text-zinc-500">{empty}</p>;
+function Ranking({
+  items,
+  empty = "データがありません",
+  total,
+}: {
+  items: RankItem[];
+  empty?: string;
+  total?: number;
+}) {
+  if (items.length === 0) {
+    return <p className="py-2 text-sm text-zinc-500">{empty}</p>;
+  }
   const max = Math.max(...items.map((i) => i.value), 1);
   return (
     <ul className="space-y-2">
@@ -289,26 +335,31 @@ function Ranking({ items, empty = "データがありません", total }: { item
         const label = (
           <span className="min-w-0 flex-1 truncate">
             {i.label}
-            {i.sub && <span className="ml-2 text-xs text-zinc-500">{i.sub}</span>}
+            {i.sub ? <span className="ml-2 text-xs text-zinc-500">{i.sub}</span> : null}
           </span>
         );
         return (
-          <li key={i.key} className="text-sm">
+          <li className="text-sm" key={i.key}>
             <div className="flex items-center justify-between gap-3 text-zinc-200">
               {i.href ? (
-                <Link to="/s/$id" params={{ id: i.href }} className="flex min-w-0 flex-1 hover:text-indigo-300">
+                <Link className="flex min-w-0 flex-1 hover:text-indigo-300" params={{ id: i.href }} to="/s/$id">
                   {label}
                 </Link>
               ) : (
                 label
               )}
-              <span className="shrink-0 tabular-nums text-zinc-400">
+              <span className="shrink-0 text-zinc-400 tabular-nums">
                 {nf.format(i.value)}
-                {total ? <span className="ml-1 text-xs text-zinc-500">({Math.round((i.value / total) * 100)}%)</span> : null}
+                {total ? (
+                  <span className="ml-1 text-xs text-zinc-500">({Math.round((i.value / total) * 100)}%)</span>
+                ) : null}
               </span>
             </div>
             <div className="mt-1 h-1 rounded-full bg-zinc-800">
-              <div className="h-1 rounded-full bg-indigo-500/70" style={{ width: `${Math.max((i.value / max) * 100, 2)}%` }} />
+              <div
+                className="h-1 rounded-full bg-indigo-500/70"
+                style={{ width: `${Math.max((i.value / max) * 100, 2)}%` }}
+              />
             </div>
           </li>
         );
@@ -337,19 +388,19 @@ function BarChart({ series, bucket }: { series: Report["series"]; bucket: "HOUR"
 
   return (
     <div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="ページビューの推移">
+      <svg aria-label="ページビューの推移" className="w-full" role="img" viewBox={`0 0 ${W} ${H}`}>
         {[0, 0.5, 1].map((f) => (
           <g key={f}>
             <line
+              className="text-zinc-800"
+              stroke="currentColor"
+              strokeWidth="1"
               x1={pad.l}
               x2={W - pad.r}
               y1={y(max * f)}
               y2={y(max * f)}
-              stroke="currentColor"
-              className="text-zinc-800"
-              strokeWidth="1"
             />
-            <text x={pad.l - 6} y={y(max * f) + 3} textAnchor="end" className="fill-zinc-500" fontSize="10">
+            <text className="fill-zinc-500" fontSize="10" textAnchor="end" x={pad.l - 6} y={y(max * f) + 3}>
               {nf.format(Math.round(max * f))}
             </text>
           </g>
@@ -357,23 +408,29 @@ function BarChart({ series, bucket }: { series: Report["series"]; bucket: "HOUR"
         {series.map((s, i) => (
           <g key={s.t}>
             <rect
-              x={pad.l + step * i + (step - barW) / 2}
-              y={y(s.pageviews)}
-              width={barW}
+              className="fill-indigo-500/70"
               height={pad.t + innerH - y(s.pageviews)}
               rx="1.5"
-              className="fill-indigo-500/70"
+              width={barW}
+              x={pad.l + step * i + (step - barW) / 2}
+              y={y(s.pageviews)}
             >
               <title>{`${bucketLabel(s.t, bucket)}: ${nf.format(s.pageviews)} PV / ${nf.format(s.visitors)} 人`}</title>
             </rect>
             {i % labelEvery === 0 && (
-              <text x={pad.l + step * i + step / 2} y={H - 6} textAnchor="middle" className="fill-zinc-500" fontSize="10">
+              <text
+                className="fill-zinc-500"
+                fontSize="10"
+                textAnchor="middle"
+                x={pad.l + step * i + step / 2}
+                y={H - 6}
+              >
                 {bucketLabel(s.t, bucket)}
               </text>
             )}
           </g>
         ))}
-        <polyline points={line} fill="none" strokeWidth="1.5" className="stroke-emerald-400" />
+        <polyline className="stroke-emerald-400" fill="none" points={line} strokeWidth="1.5" />
       </svg>
       <p className="mt-1 flex gap-4 text-xs text-zinc-500">
         <span className="flex items-center gap-1.5">

@@ -1,5 +1,5 @@
-import { Persona } from "./types";
 import { normalizeUrl } from "./services/url-normalize";
+import type { Persona } from "./types";
 
 export const DEFAULT_PERSONAS: Persona[] = [
   {
@@ -43,7 +43,9 @@ let tablesInitialized = false;
  * データベースのテーブルが存在しない場合、各テーブルを自動作成して初期データを投入する
  */
 export async function ensureDatabaseTables(db: D1Database): Promise<void> {
-  if (tablesInitialized) return;
+  if (tablesInitialized) {
+    return;
+  }
 
   try {
     await db
@@ -79,9 +81,7 @@ export async function ensureDatabaseTables(db: D1Database): Promise<void> {
     await addColumnIfMissing(db, "sessions", "og_json", "TEXT");
     await addColumnIfMissing(db, "sessions", "summary", "TEXT");
     await addColumnIfMissing(db, "memory_chunks", "normalized_url", "TEXT");
-    await db
-      .prepare("CREATE INDEX IF NOT EXISTS idx_sessions_normalized_url ON sessions(normalized_url)")
-      .run();
+    await db.prepare("CREATE INDEX IF NOT EXISTS idx_sessions_normalized_url ON sessions(normalized_url)").run();
 
     // migrations/0003 相当
     await addColumnIfMissing(db, "sessions", "genre", "TEXT");
@@ -91,7 +91,9 @@ export async function ensureDatabaseTables(db: D1Database): Promise<void> {
     // migrations/0004 相当
     await addColumnIfMissing(db, "sessions", "generating_at", "TEXT");
     await db
-      .prepare("CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL)")
+      .prepare(
+        "CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL)"
+      )
       .run();
 
     await db.prepare("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)").run();
@@ -112,7 +114,7 @@ export async function ensureDatabaseTables(db: D1Database): Promise<void> {
     }
 
     // 初期ペルソナが空ならシード
-    const countRow: any = await db.prepare("SELECT count(*) as count FROM personas").first();
+    const countRow = await db.prepare("SELECT count(*) as count FROM personas").first<{ count: number }>();
     if (!countRow || countRow.count === 0) {
       const now = new Date().toISOString();
       for (const p of DEFAULT_PERSONAS) {
@@ -133,6 +135,8 @@ export async function ensureDatabaseTables(db: D1Database): Promise<void> {
 
 async function addColumnIfMissing(db: D1Database, table: string, column: string, ddl: string) {
   const { results } = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
-  if (results.some((r) => r.name === column)) return;
+  if (results.some((r) => r.name === column)) {
+    return;
+  }
   await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`).run();
 }

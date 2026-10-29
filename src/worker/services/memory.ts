@@ -1,15 +1,27 @@
-import { Env, MemoryChunk } from "../types";
+import type { Env } from "../types";
+
+interface MemoryChunkDbRow {
+  article_title: string;
+  created_at: string;
+  embedding_json: string | null;
+  id: string;
+  key_quotes: string;
+  persona_ids: string;
+  session_id: string;
+  source_url: string;
+  topic_summary: string;
+}
 
 export interface MemorySearchResult {
-  id: string;
-  sessionId: string;
   articleTitle: string;
-  sourceUrl: string;
-  topicSummary: string;
+  createdAt: string;
+  id: string;
   keyQuotes: string;
   personaIds: string[];
   score: number;
-  createdAt: string;
+  sessionId: string;
+  sourceUrl: string;
+  topicSummary: string;
 }
 
 /**
@@ -20,14 +32,15 @@ export async function generateEmbedding(text: string, env: Env): Promise<number[
   const model = env.EMBEDDING_MODEL || "@cf/baai/bge-m3";
   const trimmed = text.slice(0, 2000); // bge-m3 の入力上限保護
 
-  if (env.AI && typeof env.AI.run === "function") {
+  if (env.AI) {
     try {
       const response = await env.AI.run(model, {
         text: [trimmed],
       });
       // @cf/baai/bge-m3 の出力形式: { shape: [1, 1024], data: [[...]] }
-      if (response && Array.isArray(response.data) && response.data.length > 0) {
-        return response.data[0];
+      const [first] = response.data ?? [];
+      if (first) {
+        return first;
       }
     } catch (err) {
       console.warn("Workers AI Embedding failed, falling back to local vector generation:", err);
@@ -50,24 +63,24 @@ export async function searchSimilarMemories(
   const queryVector = await generateEmbedding(queryText, env);
 
   // 1. Cloudflare Vectorize がバインドされている場合はVectorizeを最優先
-  if (env.VECTORIZE && typeof env.VECTORIZE.query === "function") {
+  if (env.VECTORIZE) {
     try {
       const vecResult = await env.VECTORIZE.query(queryVector, {
         topK: limit,
         returnMetadata: "all",
       });
 
-      if (vecResult && Array.isArray(vecResult.matches) && vecResult.matches.length > 0) {
+      if (vecResult.matches && vecResult.matches.length > 0) {
         const matches = vecResult.matches
-          .filter((m: any) => m.score >= minScore)
-          .map((m: any) => ({
+          .filter((m) => m.score >= minScore)
+          .map((m) => ({
             id: m.id,
             sessionId: m.metadata?.sessionId || "",
             articleTitle: m.metadata?.articleTitle || "",
             sourceUrl: m.metadata?.sourceUrl || "",
             topicSummary: m.metadata?.topicSummary || "",
             keyQuotes: m.metadata?.keyQuotes || "",
-            personaIds: m.metadata?.personaIds ? JSON.parse(m.metadata.personaIds) : [],
+            personaIds: m.metadata?.personaIds ? (JSON.parse(m.metadata.personaIds) as string[]) : [],
             score: m.score,
             createdAt: m.metadata?.createdAt || "",
           }));
@@ -85,14 +98,14 @@ export async function searchSimilarMemories(
   try {
     const { results } = await env.DB.prepare(
       "SELECT id, session_id, article_title, source_url, topic_summary, key_quotes, persona_ids, embedding_json, created_at FROM memory_chunks ORDER BY created_at DESC LIMIT 50"
-    ).all();
+    ).all<MemoryChunkDbRow>();
 
     if (!results || results.length === 0) {
       return [];
     }
 
     const scored = results
-      .map((row: any) => {
+      .map((row) => {
         let score = 0;
         if (row.embedding_json) {
           try {
@@ -109,7 +122,7 @@ export async function searchSimilarMemories(
           sourceUrl: row.source_url,
           topicSummary: row.topic_summary,
           keyQuotes: row.key_quotes,
-          personaIds: JSON.parse(row.persona_ids || "[]"),
+          personaIds: JSON.parse(row.persona_ids || "[]") as string[],
           score,
           createdAt: row.created_at,
         };
@@ -163,7 +176,7 @@ export async function saveMemoryChunk(
     .run();
 
   // 2. Vectorize に upsert
-  if (env.VECTORIZE && typeof env.VECTORIZE.upsert === "function") {
+  if (env.VECTORIZE) {
     try {
       await env.VECTORIZE.upsert([
         {
@@ -190,7 +203,9 @@ export async function saveMemoryChunk(
  * コサイン類似度の計算
  */
 function cosineSimilarity(vecA: number[], vecB: number[]): number {
-  if (vecA.length !== vecB.length || vecA.length === 0) return 0;
+  if (vecA.length !== vecB.length || vecA.length === 0) {
+    return 0;
+  }
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
@@ -199,7 +214,9 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
     normA += vecA[i] * vecA[i];
     normB += vecB[i] * vecB[i];
   }
-  if (normA === 0 || normB === 0) return 0;
+  if (normA === 0 || normB === 0) {
+    return 0;
+  }
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 

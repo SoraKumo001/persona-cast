@@ -1,34 +1,32 @@
-import type { Persona } from "../../worker/types";
-
-export type { Persona };
+export type { Persona } from "../../worker/types";
 
 export interface Ogp {
-  title: string | null;
   description: string | null;
+  favicon: string | null;
   image: string | null;
   siteName: string | null;
-  favicon: string | null;
+  title: string | null;
   type: string | null;
 }
 
 export interface SessionSummary {
-  id: string;
-  sourceUrl: string;
-  normalizedUrl: string | null;
-  articleTitle: string;
   articleSummary: string;
-  summary: string | null;
+  articleTitle: string;
+  createdAt: string;
   genre: string | null;
+  id: string;
+  normalizedUrl: string | null;
   ogp: Ogp | null;
   personaIds: string[];
-  createdAt: string;
+  sourceUrl: string;
+  summary: string | null;
 }
 
 export interface Participant {
-  id: string;
-  name: string;
   avatar: string;
   avatarUrl: string | null;
+  id: string;
+  name: string;
   themeColor: string;
 }
 
@@ -39,44 +37,51 @@ export interface SessionListItem extends SessionSummary {
 }
 
 export interface GenreCount {
-  genre: string;
   count: number;
+  genre: string;
 }
 
 export interface PastMemory {
-  sessionId: string;
   articleTitle: string;
-  topicSummary: string;
   score: number;
+  sessionId: string;
+  topicSummary: string;
 }
 
 export interface ChatMessage {
-  turnIndex: number;
-  personaId: string;
-  name: string;
-  role: string;
   avatar: string;
   avatarUrl: string | null;
-  themeColor: string;
   content: string;
-  streaming: boolean;
-  referencedSessionId?: string | null;
+  name: string;
+  personaId: string;
   referencedArticleTitle?: string | null;
+  referencedSessionId?: string | null;
+  role: string;
+  streaming: boolean;
+  themeColor: string;
+  turnIndex: number;
+}
+
+/** catch した値 (unknown) からメッセージを取り出す */
+export function errorMessage(err: unknown, fallback = "不明なエラーが発生しました"): string {
+  return err instanceof Error && err.message ? err.message : fallback;
 }
 
 export class ApiError extends Error {
-  constructor(
-    message: string,
-    public status: number
-  ) {
+  status: number;
+
+  constructor(message: string, status: number) {
     super(message);
+    this.status = status;
   }
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, init);
   const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) throw new ApiError(data.error ?? `リクエストに失敗しました (HTTP ${res.status})`, res.status);
+  if (!res.ok) {
+    throw new ApiError(data.error ?? `リクエストに失敗しました (HTTP ${res.status})`, res.status);
+  }
   return data as T;
 }
 
@@ -90,7 +95,7 @@ export function postJson<T>(path: string, body: unknown, method = "POST"): Promi
 
 export function hostOf(url: string): string {
   try {
-    return new URL(url).hostname.replace(/^www\./, "");
+    return new URL(url).hostname.replace(/^www\./u, "");
   } catch {
     return url;
   }
@@ -100,7 +105,13 @@ export function formatDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
     ? ""
-    : d.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    : d.toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
 }
 
 /** 年つきの日時 (対談ページの生成時刻用)。サーバーとブラウザで同じ表示になるよう JST に固定する */

@@ -1,28 +1,29 @@
 /**
  * URLから記事のタイトル・本文・OGP情報を抽出するスクレーパーサービス (HTMLRewriter ベース)
  */
-import { normalizeUrl, pickCanonical } from "./url-normalize";
+
 import { hasAdultRating } from "./adult-filter";
+import { normalizeUrl, pickCanonical } from "./url-normalize";
 
 export interface OgpInfo {
-  title: string | null;
   description: string | null;
+  favicon: string | null;
   image: string | null;
   siteName: string | null;
-  favicon: string | null;
+  title: string | null;
   type: string | null;
 }
 
 export interface ScrapedArticle {
-  /** リダイレクト後の最終URL */
-  url: string;
-  /** canonical・最終URLを考慮した正規化URL (同一ページ判定キー) */
-  normalizedUrl: string;
-  title: string;
-  content: string;
-  ogp: OgpInfo;
   /** ページ自身が成人向けと宣言している (rating メタ / RTA ラベル) */
   adultRated: boolean;
+  content: string;
+  /** canonical・最終URLを考慮した正規化URL (同一ページ判定キー) */
+  normalizedUrl: string;
+  ogp: OgpInfo;
+  title: string;
+  /** リダイレクト後の最終URL */
+  url: string;
 }
 
 const MAX_REDIRECTS = 5;
@@ -37,20 +38,20 @@ export function assertPublicHttpUrl(url: URL): void {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new ScrapeError("HTTP/HTTPS 以外のURLは取得できません。");
   }
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/gu, "");
   const blockedName =
     host === "localhost" ||
     host.endsWith(".localhost") ||
     host.endsWith(".local") ||
     host.endsWith(".internal") ||
-    !host.includes(".") && !host.includes(":");
+    !(host.includes(".") || host.includes(":"));
   if (blockedName || isPrivateIp(host)) {
     throw new ScrapeError("このアドレスのURLは取得できません。");
   }
 }
 
 function isPrivateIp(host: string): boolean {
-  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/u);
   if (v4) {
     const [a, b] = [Number(v4[1]), Number(v4[2])];
     return (
@@ -86,13 +87,18 @@ async function fetchHtml(startUrl: URL): Promise<{ html: string; finalUrl: URL }
           "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
         },
       });
-    } catch (err: any) {
-      throw new ScrapeError(`URLに接続できませんでした (${err?.name === "TimeoutError" ? "タイムアウト" : "接続エラー"})`);
+    } catch (err) {
+      throw new ScrapeError(
+        `URLに接続できませんでした (${err instanceof Error && err.name === "TimeoutError" ? "タイムアウト" : "接続エラー"})`,
+        { cause: err }
+      );
     }
 
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");
-      if (!location) throw new ScrapeError("リダイレクト先が不正です。");
+      if (!location) {
+        throw new ScrapeError("リダイレクト先が不正です。");
+      }
       current = new URL(location, current);
       continue;
     }
@@ -101,7 +107,7 @@ async function fetchHtml(startUrl: URL): Promise<{ html: string; finalUrl: URL }
     }
 
     const contentType = response.headers.get("content-type") || "";
-    if (!/html|xml/i.test(contentType)) {
+    if (!/html|xml/iu.test(contentType)) {
       throw new ScrapeError("HTMLページではないため取得できません。");
     }
 
@@ -112,13 +118,17 @@ async function fetchHtml(startUrl: URL): Promise<{ html: string; finalUrl: URL }
 
 async function readLimited(response: Response, limit: number): Promise<string> {
   const reader = response.body?.getReader();
-  if (!reader) return "";
+  if (!reader) {
+    return "";
+  }
   const decoder = new TextDecoder("utf-8", { fatal: false });
   let received = 0;
   let text = "";
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     received += value.byteLength;
     text += decoder.decode(value, { stream: true });
     if (received >= limit) {
@@ -130,11 +140,11 @@ async function readLimited(response: Response, limit: number): Promise<string> {
 }
 
 interface Extracted {
-  title: string;
-  meta: Map<string, string>;
+  buckets: Record<"article" | "main" | "body", string>;
   canonical: string | null;
   icon: string | null;
-  buckets: Record<"article" | "main" | "body", string>;
+  meta: Map<string, string>;
+  title: string;
 }
 
 const BLOCKS = "p, h1, h2, h3, h4, li";
@@ -158,16 +168,24 @@ async function extract(html: string): Promise<Extracted> {
       element(el) {
         const key = (el.getAttribute("property") || el.getAttribute("name"))?.toLowerCase();
         const content = el.getAttribute("content");
-        if (key && content && !out.meta.has(key)) out.meta.set(key, content);
+        if (key && content && !out.meta.has(key)) {
+          out.meta.set(key, content);
+        }
       },
     })
     .on("link", {
       element(el) {
-        const rel = (el.getAttribute("rel") || "").toLowerCase().split(/\s+/);
+        const rel = (el.getAttribute("rel") || "").toLowerCase().split(/\s+/u);
         const href = el.getAttribute("href");
-        if (!href) return;
-        if (rel.includes("canonical") && !out.canonical) out.canonical = href;
-        if (rel.includes("icon") && !out.icon) out.icon = href;
+        if (!href) {
+          return;
+        }
+        if (rel.includes("canonical") && !out.canonical) {
+          out.canonical = href;
+        }
+        if (rel.includes("icon") && !out.icon) {
+          out.icon = href;
+        }
       },
     });
 
@@ -196,16 +214,15 @@ export async function scrapeUrl(urlStr: string): Promise<ScrapedArticle> {
   let url: URL;
   try {
     url = new URL(urlStr);
-  } catch {
-    throw new ScrapeError("無効なURL形式です。有効なHTTP/HTTPS URLを入力してください。");
+  } catch (err) {
+    throw new ScrapeError("無効なURL形式です。有効なHTTP/HTTPS URLを入力してください。", { cause: err });
   }
 
   const { html, finalUrl } = await fetchHtml(url);
   const page = await extract(html);
   const meta = (k: string) => cleanText(page.meta.get(k) ?? "") || null;
 
-  const title =
-    cleanText(page.title) || meta("og:title") || meta("twitter:title") || finalUrl.hostname;
+  const title = cleanText(page.title) || meta("og:title") || meta("twitter:title") || finalUrl.hostname;
   const ogp: OgpInfo = {
     title: meta("og:title") ?? (cleanText(page.title) || null),
     description: meta("og:description") ?? meta("twitter:description") ?? meta("description"),
@@ -218,8 +235,12 @@ export async function scrapeUrl(urlStr: string): Promise<ScrapedArticle> {
   // 本文: article > main > 全体 の順で、十分な長さのあるものを採用
   const candidates = [page.buckets.article, page.buckets.main, page.buckets.body].map(cleanText);
   let content = candidates.find((c) => c.length >= 200) ?? candidates.sort((a, b) => b.length - a.length)[0] ?? "";
-  if (content.length > MAX_CONTENT_CHARS) content = content.slice(0, MAX_CONTENT_CHARS) + "...(省略)";
-  if (!content) content = ogp.description ?? "";
+  if (content.length > MAX_CONTENT_CHARS) {
+    content = `${content.slice(0, MAX_CONTENT_CHARS)}...(省略)`;
+  }
+  if (!content) {
+    content = ogp.description ?? "";
+  }
 
   const canonical = pickCanonical(finalUrl.toString(), page.canonical ?? meta("og:url"));
   const normalizedUrl = normalizeUrl(canonical ?? finalUrl.toString());
@@ -229,7 +250,9 @@ export async function scrapeUrl(urlStr: string): Promise<ScrapedArticle> {
 
 /** 画像・favicon は http(s) のみ許可し、絶対URLに解決する */
 function resolvePublicUrl(href: string | null | undefined, base: URL): string | null {
-  if (!href) return null;
+  if (!href) {
+    return null;
+  }
   try {
     const u = new URL(href, base);
     return u.protocol === "http:" || u.protocol === "https:" ? u.toString() : null;
@@ -251,15 +274,15 @@ const NAMED_ENTITIES: Record<string, string> = {
 };
 
 export function decodeHtmlEntities(str: string): string {
-  return str.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e: string) => {
+  return str.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/giu, (m, e: string) => {
     if (e[0] === "#") {
-      const code = e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+      const code = e[1].toLowerCase() === "x" ? Number.parseInt(e.slice(2), 16) : Number.parseInt(e.slice(1), 10);
+      return Number.isFinite(code) && code > 0 && code <= 0x10_ff_ff ? String.fromCodePoint(code) : m;
     }
     return NAMED_ENTITIES[e.toLowerCase()] ?? m;
   });
 }
 
 function cleanText(s: string): string {
-  return decodeHtmlEntities(s).replace(/\s+/g, " ").trim();
+  return decodeHtmlEntities(s).replace(/\s+/gu, " ").trim();
 }

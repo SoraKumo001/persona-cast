@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { RANGES, buildQueries, buildReport, isRangeKey, num } from "./analytics-query";
+import { buildQueries, buildReport, isRangeKey, num, RANGES } from "./analytics-query";
 
 describe("isRangeKey", () => {
   test("許可リストのキーだけ通す (SQLに埋め込む値を外から受けない)", () => {

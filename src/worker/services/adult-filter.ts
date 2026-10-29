@@ -31,16 +31,18 @@ const ADULT_DOMAINS = [
 ];
 
 export function isAdultHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.$/, "");
+  const host = hostname.toLowerCase().replace(/\.$/u, "");
   const tld = host.split(".").pop() ?? "";
-  if (ADULT_TLDS.includes(tld)) return true;
+  if (ADULT_TLDS.includes(tld)) {
+    return true;
+  }
   return ADULT_DOMAINS.some((d) => host === d || host.endsWith(`.${d}`));
 }
 
 /** ページが自分で成人向けと宣言しているか (rating メタ / RTA ラベル) */
 export function hasAdultRating(meta: Map<string, string>): boolean {
   const rating = (meta.get("rating") ?? "").toLowerCase();
-  return /\b(adult|mature|18\+)\b/.test(rating) || rating.includes("rta-5042-1996-1400-1577-rta");
+  return /\b(adult|mature|18\+)\b/u.test(rating) || rating.includes("rta-5042-1996-1400-1577-rta");
 }
 
 // 誤検出を避けるため、医療・報道・性教育の記事にも出やすい語 (「性交」「セックス」など) は入れない

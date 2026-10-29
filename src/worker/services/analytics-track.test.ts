@@ -9,7 +9,9 @@ describe("classifyDevice", () => {
     expect(classifyDevice("curl/8.0")).toBe("bot");
   });
   test("モバイル・タブレット・PC", () => {
-    expect(classifyDevice("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit Mobile/15E148")).toBe("mobile");
+    expect(classifyDevice("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit Mobile/15E148")).toBe(
+      "mobile"
+    );
     expect(classifyDevice("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit Mobile Safari")).toBe("mobile");
     expect(classifyDevice("Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit")).toBe("tablet");
     expect(classifyDevice("Mozilla/5.0 (Linux; Android 14; SM-X900) AppleWebKit Safari")).toBe("tablet");
@@ -34,7 +36,17 @@ describe("classifyRoute", () => {
     expect(classifyRoute("/api/whatever")?.route).toBe("/api/other");
   });
   test("管理・静的ファイル・サーバー関数・ヘルスチェックは対象外", () => {
-    for (const p of ["/admin", "/admin/analytics", "/api/admin/settings", "/assets/app.js", "/favicon.ico", "/_serverFn/abc", "/api/health", "/api/sessions/ses_1/ogp.png", "/logo.svg"]) {
+    for (const p of [
+      "/admin",
+      "/admin/analytics",
+      "/api/admin/settings",
+      "/assets/app.js",
+      "/favicon.ico",
+      "/_serverFn/abc",
+      "/api/health",
+      "/api/sessions/ses_1/ogp.png",
+      "/logo.svg",
+    ]) {
       expect(classifyRoute(p)).toBeNull();
     }
     expect(classifyRoute("/administrator")).not.toBeNull();
@@ -60,7 +72,7 @@ describe("visitorHash / jstDay", () => {
     expect(a).toBe(await visitorHash("203.0.113.9", "UA", "2026-10-29", "salt"));
     expect(a).not.toBe(await visitorHash("203.0.113.9", "UA", "2026-10-30", "salt"));
     expect(a).not.toBe(await visitorHash("203.0.113.9", "UA", "2026-10-29", "other"));
-    expect(a).toMatch(/^[0-9a-f]{16}$/);
+    expect(a).toMatch(/^[0-9a-f]{16}$/u);
     expect(a).not.toContain("203");
   });
   test("日本時間の日付", () => {
@@ -99,9 +111,9 @@ describe("trackRequest / trackEvent", () => {
     );
     await Promise.all(pending);
     expect(points).toHaveLength(1);
-    const p = points[0];
+    const [p] = points;
     expect(p.blobs.slice(0, 7)).toEqual(["pv", "/s/:id", "ses_1", "HIT", "JP", "t.co", "mobile"]);
-    expect(p.blobs[7]).toMatch(/^[0-9a-f]{16}$/);
+    expect(p.blobs[7]).toMatch(/^[0-9a-f]{16}$/u);
     expect(JSON.stringify(p)).not.toContain("203.0.113.9");
     expect(p.doubles[0]).toBe(200);
     expect(p.doubles[1]).toBeGreaterThanOrEqual(0);
@@ -111,8 +123,20 @@ describe("trackRequest / trackEvent", () => {
     const { points, pending, env, ctx } = setup();
     const { trackRequest } = await import("./analytics-track");
     trackRequest(env, ctx, req("/admin"), html(), Date.now());
-    trackRequest(env, ctx, req("/"), new Response("{}", { headers: { "content-type": "application/json" } }), Date.now());
-    trackRequest(env, ctx, req("/favicon.svg"), new Response("<svg/>", { headers: { "content-type": "image/svg+xml" } }), Date.now());
+    trackRequest(
+      env,
+      ctx,
+      req("/"),
+      new Response("{}", { headers: { "content-type": "application/json" } }),
+      Date.now()
+    );
+    trackRequest(
+      env,
+      ctx,
+      req("/favicon.svg"),
+      new Response("<svg/>", { headers: { "content-type": "image/svg+xml" } }),
+      Date.now()
+    );
     trackRequest(env, ctx, req("/api/sessions", {}, "POST"), new Response("{}", { status: 429 }), Date.now());
     await Promise.all(pending);
     expect(points).toHaveLength(1);
@@ -125,7 +149,13 @@ describe("trackRequest / trackEvent", () => {
     const { ctx } = setup();
     expect(() => trackRequest({} as any, ctx, req("/"), html(), Date.now())).not.toThrow();
     expect(() => trackEvent({} as any, "x")).not.toThrow();
-    const broken: any = { ANALYTICS: { writeDataPoint: () => { throw new Error("boom"); } } };
+    const broken: any = {
+      ANALYTICS: {
+        writeDataPoint: () => {
+          throw new Error("boom");
+        },
+      },
+    };
     expect(() => trackEvent(broken, "x")).not.toThrow();
   });
 

@@ -1,4 +1,4 @@
-const PLACEHOLDER = /\{\{(\w+)\}\}/g;
+const PLACEHOLDER = /\{\{(\w+)\}\}/gu;
 
 /**
  * テンプレート内の {{変数}} を差し込む。
@@ -8,17 +8,21 @@ const PLACEHOLDER = /\{\{(\w+)\}\}/g;
  * - 取り込みで付く末尾の改行1つ、CRLF、BOMは取り除く
  */
 export function renderPrompt(template: string, vars: Record<string, string | number> = {}): string {
-  const text = template.replace(/^﻿/, "").replace(/\r\n/g, "\n").replace(/\n$/, "");
+  const text = template.replace(/^﻿/u, "").replace(/\r\n/gu, "\n").replace(/\n$/u, "");
 
   const used = new Set<string>();
   const out = text.replace(PLACEHOLDER, (_, name: string) => {
-    if (!(name in vars)) throw new Error(`プロンプトの変数 "${name}" が渡されていません`);
+    if (!(name in vars)) {
+      throw new Error(`プロンプトの変数 "${name}" が渡されていません`);
+    }
     used.add(name);
     return String(vars[name]);
   });
 
   for (const name of Object.keys(vars)) {
-    if (!used.has(name)) throw new Error(`プロンプトに変数 "${name}" のプレースホルダーがありません`);
+    if (!used.has(name)) {
+      throw new Error(`プロンプトに変数 "${name}" のプレースホルダーがありません`);
+    }
   }
   return out;
 }

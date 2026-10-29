@@ -2,8 +2,10 @@
  * 対談の一覧・詳細の読み取り。HTTP API (routes/sessions.ts) と、SSR の loader から呼ぶ
  * server function (src/server-fns/sessions.ts) の両方で使う。
  */
+import type { MessageRow, PersonaRow, SessionRow } from "../db-types";
 import { DEFAULT_GENRE, isGenre } from "./genres";
 import { PERSONA_COLUMNS, toPersona } from "./persona-store";
+import type { OgpInfo } from "./scraper";
 
 export const SESSION_COLUMNS =
   "id, source_url as sourceUrl, normalized_url as normalizedUrl, article_title as articleTitle, article_summary as articleSummary, summary, genre, og_json as ogJson, persona_ids as personaIds, created_at as createdAt";
@@ -11,15 +13,24 @@ export const SESSION_COLUMNS =
 // 発言が1件以上ある対談のみを一覧に出す
 const HAS_MESSAGES = "EXISTS (SELECT 1 FROM messages m WHERE m.session_id = sessions.id)";
 
-export function toSession(row: any) {
-  const { ogJson, ...rest } = row;
-  let ogp = null;
+export function toSession(row: SessionRow) {
+  const { ogJson, personaIds, ...rest } = row;
+  let ogp: OgpInfo | null = null;
   try {
-    ogp = ogJson ? JSON.parse(ogJson) : null;
+    ogp = ogJson ? (JSON.parse(ogJson) as OgpInfo) : null;
   } catch {
     // 壊れたJSONは無視
   }
-  return { ...rest, ogp, personaIds: JSON.parse(rest.personaIds || "[]") };
+  return { ...rest, ogp, personaIds: JSON.parse(personaIds || "[]") as string[] };
+}
+
+/** 一覧のカードに出す、参加ペルソナの要約 */
+export interface ParticipantSummary {
+  avatar: string;
+  avatarUrl: string | null | undefined;
+  id: string;
+  name: string;
+  themeColor: string;
 }
 
 export const PAGE_SIZE = 24;
@@ -44,20 +55,26 @@ export async function listSessions(db: D1Database, options: { genre?: string; pa
   const { results } = await db
     .prepare(`SELECT ${SESSION_COLUMNS} FROM sessions ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
     .bind(...filterBinds, pageSize, (page - 1) * pageSize)
-    .all();
+    .all<SessionRow>();
   const sessions = results.map(toSession);
 
   // カードに出す参加ペルソナを、まとめて1回で取得する
-  const ids = [...new Set(sessions.flatMap((s: any) => s.personaIds as string[]))];
-  const personaMap = new Map<string, any>();
+  const ids = [...new Set(sessions.flatMap((s) => s.personaIds))];
+  const personaMap = new Map<string, ParticipantSummary>();
   if (ids.length > 0) {
     const { results: rows } = await db
       .prepare(`SELECT ${PERSONA_COLUMNS} FROM personas WHERE id IN (${ids.map(() => "?").join(",")})`)
       .bind(...ids)
-      .all();
+      .all<PersonaRow>();
     for (const r of rows) {
       const p = toPersona(r);
-      personaMap.set(p.id, { id: p.id, name: p.name, avatar: p.avatar, avatarUrl: p.avatarUrl, themeColor: p.themeColor });
+      personaMap.set(p.id, {
+        id: p.id,
+        name: p.name,
+        avatar: p.avatar,
+        avatarUrl: p.avatarUrl,
+        themeColor: p.themeColor,
+      });
     }
   }
 
@@ -66,15 +83,17 @@ export async function listSessions(db: D1Database, options: { genre?: string; pa
       `SELECT COALESCE(genre, ?) as genre, COUNT(*) as count FROM sessions WHERE ${HAS_MESSAGES} GROUP BY 1 ORDER BY count DESC, genre ASC`
     )
     .bind(DEFAULT_GENRE)
-    .all();
+    .all<{ genre: string; count: number }>();
 
   return {
-    sessions: sessions.map((s: any) => ({
+    sessions: sessions.map((s) => ({
       ...s,
       genre: s.genre ?? DEFAULT_GENRE,
-      participants: s.personaIds.map((id: string) => personaMap.get(id)).filter(Boolean),
+      participants: s.personaIds
+        .map((id) => personaMap.get(id))
+        .filter((p): p is ParticipantSummary => p !== undefined),
     })),
-    genres: genres as { genre: string; count: number }[],
+    genres,
     page,
     pageSize,
     total,
@@ -84,8 +103,10 @@ export async function listSessions(db: D1Database, options: { genre?: string; pa
 
 /** 対談の詳細。セッション・発言ログ・参加ペルソナ。無ければ null */
 export async function getSessionDetail(db: D1Database, id: string) {
-  const row: any = await db.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = ?`).bind(id).first();
-  if (!row) return null;
+  const row = await db.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = ?`).bind(id).first<SessionRow>();
+  if (!row) {
+    return null;
+  }
   const session = toSession(row);
 
   const { results: messages } = await db
@@ -100,7 +121,7 @@ export async function getSessionDetail(db: D1Database, id: string) {
        ORDER BY m.turn_index ASC`
     )
     .bind(id)
-    .all();
+    .all<MessageRow>();
 
   // 参加者は、アーカイブ済みでも対談には出す
   const personaIds: string[] = session.personaIds;
@@ -109,7 +130,7 @@ export async function getSessionDetail(db: D1Database, id: string) {
     const { results: rows } = await db
       .prepare(`SELECT ${PERSONA_COLUMNS} FROM personas WHERE id IN (${personaIds.map(() => "?").join(",")})`)
       .bind(...personaIds)
-      .all();
+      .all<PersonaRow>();
     const byId = new Map(rows.map((r) => [toPersona(r).id, toPersona(r)]));
     participants = personaIds.map((pid) => byId.get(pid)).filter((p): p is NonNullable<typeof p> => !!p);
   }
@@ -117,13 +138,13 @@ export async function getSessionDetail(db: D1Database, id: string) {
   return {
     session,
     participants,
-    messages: messages.map((m: any) => {
+    messages: messages.map((m) => {
       const { personaAvatarKey, personaAvatarType, ...rest } = m;
       return {
         ...rest,
         personaAvatarUrl:
           personaAvatarType === "image" && personaAvatarKey
-            ? `/api/personas/${m.personaId}/avatar?v=${encodeURIComponent(personaAvatarKey.split("/").pop())}`
+            ? `/api/personas/${m.personaId}/avatar?v=${encodeURIComponent(personaAvatarKey.split("/").pop() ?? "")}`
             : null,
       };
     }),

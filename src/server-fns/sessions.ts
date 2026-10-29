@@ -31,6 +31,8 @@ export const getSessionDetailFn = createServerFn({ method: "GET" })
     const { cacheFor } = await import("../worker/cache");
     const detail = await getSessionDetail(await getDb(), id);
     // 発言が保存された対談は変わらないのでSSRの応答ごとキャッシュする。生成前・生成中・未存在は載せない
-    if (detail && detail.messages.length > 0) cacheFor(600, { maxAge: 60 });
+    if (detail && detail.messages.length > 0) {
+      cacheFor(600, { maxAge: 60 });
+    }
     return detail;
   });

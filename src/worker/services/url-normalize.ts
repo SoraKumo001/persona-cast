@@ -38,20 +38,27 @@ export function normalizeUrl(input: string): string {
   let url: URL;
   try {
     url = new URL(input.trim());
-  } catch {
-    throw new Error("無効なURL形式です。有効なHTTP/HTTPS URLを入力してください。");
+  } catch (err) {
+    throw new Error("無効なURL形式です。有効なHTTP/HTTPS URLを入力してください。", { cause: err });
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("HTTP/HTTPS 以外のURLは指定できません。");
   }
 
-  const host = url.hostname.toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
+  const host = url.hostname
+    .toLowerCase()
+    .replace(/\.$/u, "")
+    .replace(/^www\./u, "");
 
   // 認証情報・fragment は同一ページ判定に不要 (かつ漏えいを避ける)
-  let path = url.pathname.replace(/\/{2,}/g, "/");
-  path = path.replace(/\/index\.(html?|php)$/i, "/");
-  if (path.length > 1) path = path.replace(/\/+$/, "");
-  if (!path) path = "/";
+  let path = url.pathname.replace(/\/{2,}/gu, "/");
+  path = path.replace(/\/index\.(html?|php)$/iu, "/");
+  if (path.length > 1) {
+    path = path.replace(/\/+$/u, "");
+  }
+  if (!path) {
+    path = "/";
+  }
 
   const params = [...url.searchParams.entries()]
     .filter(([key]) => !isTrackingParam(key))
@@ -66,7 +73,9 @@ export function normalizeUrl(input: string): string {
 
 /** canonical を採用してよいか: 同一ホスト内のみ (他ドメインへの付け替えを防ぐ) */
 export function pickCanonical(pageUrl: string, canonicalHref: string | null | undefined): string | null {
-  if (!canonicalHref) return null;
+  if (!canonicalHref) {
+    return null;
+  }
   try {
     const resolved = new URL(canonicalHref, pageUrl).toString();
     const a = new URL(normalizeUrl(pageUrl));
