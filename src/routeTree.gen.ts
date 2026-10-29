@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as MemoriesRouteImport } from './routes/memories'
 import { Route as AdminPersonasRouteImport } from './routes/admin.personas'
 import { Route as SIdRouteImport } from './routes/s.$id'
@@ -19,15 +20,20 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MemoriesRoute = MemoriesRouteImport.update({
   id: '/memories',
   path: '/memories',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminPersonasRoute = AdminPersonasRouteImport.update({
-  id: '/admin/personas',
-  path: '/admin/personas',
-  getParentRoute: () => rootRouteImport,
+  id: '/personas',
+  path: '/personas',
+  getParentRoute: () => AdminRoute,
 } as any)
 const SIdRoute = SIdRouteImport.update({
   id: '/s/$id',
@@ -37,12 +43,14 @@ const SIdRoute = SIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/memories': typeof MemoriesRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/s/$id': typeof SIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/memories': typeof MemoriesRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/s/$id': typeof SIdRoute
@@ -50,22 +58,23 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/memories': typeof MemoriesRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/s/$id': typeof SIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/memories' | '/admin/personas' | '/s/$id'
+  fullPaths: '/' | '/admin' | '/memories' | '/admin/personas' | '/s/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/memories' | '/admin/personas' | '/s/$id'
-  id: '__root__' | '/' | '/memories' | '/admin/personas' | '/s/$id'
+  to: '/' | '/admin' | '/memories' | '/admin/personas' | '/s/$id'
+  id: '__root__' | '/' | '/admin' | '/memories' | '/admin/personas' | '/s/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdminRoute: typeof AdminRouteWithChildren
   MemoriesRoute: typeof MemoriesRoute
-  AdminPersonasRoute: typeof AdminPersonasRoute
   SIdRoute: typeof SIdRoute
 }
 
@@ -78,6 +87,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/memories': {
       id: '/memories'
       path: '/memories'
@@ -87,10 +103,10 @@ declare module '@tanstack/react-router' {
     }
     '/admin/personas': {
       id: '/admin/personas'
-      path: '/admin/personas'
+      path: '/personas'
       fullPath: '/admin/personas'
       preLoaderRoute: typeof AdminPersonasRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/s/$id': {
       id: '/s/$id'
@@ -102,10 +118,20 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AdminRouteChildren {
+  AdminPersonasRoute: typeof AdminPersonasRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminPersonasRoute: AdminPersonasRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdminRoute: AdminRouteWithChildren,
   MemoriesRoute: MemoriesRoute,
-  AdminPersonasRoute: AdminPersonasRoute,
   SIdRoute: SIdRoute,
 }
 export const routeTree = rootRouteImport

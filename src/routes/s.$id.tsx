@@ -59,9 +59,9 @@ function ShareOnX({ url, title }: { url: string; title: string }) {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-100 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-zinc-100 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
     >
-      <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true">
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-current" aria-hidden="true">
         <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
       </svg>
       Xでシェア
@@ -187,23 +187,26 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <nav className="flex items-center gap-2 text-xs text-zinc-400" aria-label="パンくず">
-        <Link to="/" className="hover:text-zinc-200">
-          対談一覧
-        </Link>
-        {session.genre && (
-          <>
-            <span aria-hidden>/</span>
-            <Link
-              to="/"
-              search={{ genre: session.genre }}
-              className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-indigo-200 hover:bg-indigo-500/25"
-            >
-              {session.genre}
-            </Link>
-          </>
-        )}
-      </nav>
+      <div className="flex items-center justify-between gap-3">
+        <nav className="flex items-center gap-2 text-xs text-zinc-400" aria-label="パンくず">
+          <Link to="/" className="hover:text-zinc-200">
+            対談一覧
+          </Link>
+          {session.genre && (
+            <>
+              <span aria-hidden>/</span>
+              <Link
+                to="/"
+                search={{ genre: session.genre }}
+                className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-indigo-200 hover:bg-indigo-500/25"
+              >
+                {session.genre}
+              </Link>
+            </>
+          )}
+        </nav>
+        {status === "done" && pageUrl && session && <ShareOnX url={pageUrl} title={session.articleTitle} />}
+      </div>
 
       <OgpCard
         url={session.sourceUrl}
@@ -314,8 +317,7 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
       )}
 
       {status === "done" && (
-        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 pt-2">
-          {pageUrl && session && <ShareOnX url={pageUrl} title={session.articleTitle} />}
+        <div className="pt-2 text-center">
           <Link to="/" className="text-sm text-indigo-300 hover:text-indigo-200">
             別のURLで対談する
           </Link>

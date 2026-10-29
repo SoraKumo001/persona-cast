@@ -113,12 +113,12 @@ bun run deploy
 
 ## 管理者認証 (Cloudflare Access) とアバター (R2)
 
-ペルソナの編集は管理者のみ。`/admin/*` (画面) と `/api/admin/*` (API) を Cloudflare Access で保護します。
+ペルソナの編集は管理者のみ。`/admin` と `/admin/*` (画面) と `/api/admin/*` (API) を Cloudflare Access で保護します。
 Worker 側でも `Cf-Access-Jwt-Assertion` の署名・`aud`・`iss` を検証します (設定が欠けていれば常に拒否)。
 
 1. **R2 バケット作成**: `cf r2 bucket create persona-cast-avatars`
 2. **Access アプリ作成** (Zero Trust ダッシュボード → Access → Applications → Self-hosted)
-   - パス: `/admin/*` と `/api/admin/*` の2つ
+   - パス: `/admin` (画面の本体。`/admin/*` だけでは `/admin` が含まれない)、`/admin/*`、`/api/admin/*` の3つ。旧URLの `/admin/personas` は `/admin` に転送します
    - ポリシー: 許可する管理者のメールアドレスのみ Allow
    - 発行された **Application Audience (AUD) タグ** と **チームドメイン** (`<team>.cloudflareaccess.com`) を控える
 3. **シークレット登録**
@@ -159,7 +159,7 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 
 - ハンドラが `cacheFor(秒数)` で申告した応答だけをキャッシュします。申告がなければキャッシュしません。
 - 対象: 発言が保存された対談 (`/s/:id` と `/api/sessions/:id`、600秒)、トップと対談一覧・ペルソナ一覧 (60秒)、OGP画像 (3600秒)、アバター (1年・immutable)。
-- 対象外: 生成前・生成中の対談、SSE、POST、認証ヘッダ付きのリクエスト。`/admin/*` と `/api/admin/*` には `private, no-store` を付けます。
+- 対象外: 生成前・生成中の対談、SSE、POST、認証ヘッダ付きのリクエスト。`/admin` 以下と `/api/admin/*` には `private, no-store` を付けます。
 - 応答には `X-Cache: HIT|MISS` が付きます。ペルソナ編集の反映は最大10分遅れることがあります。
 - Cache API は独自ドメイン (ゾーン) でのみ効きます。`*.workers.dev` では何もしません。
 
@@ -186,9 +186,14 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 
 - トップページのOGP画像: `GET /api/ogp.png` (1200x630)。サイトの紹介と、出演するペルソナ (最大5人) を描き、構成が変わるたびにR2へ作り直します。`og:*` / `twitter:*` は SSR で出力します。
 - Xへのシェア: 生成済みの対談ページに「Xでシェア」のリンクを出します (`https://x.com/intent/post`)。JS なしで動く普通のリンクで、対談のタイトルとURLが入ります。
-- 1日の対談数の上限: 管理画面 (ペルソナ管理) の上部で、全利用者の合計で1日に新しく作れる対談の数を設定できます。既定は 1000、日本時間の0時にリセット、0 にすると新規作成を止めます。上限に達すると `POST /api/sessions` が 429 を返します (保存済みの対談を開くことはできます)。設定は D1 の `app_settings` に保存します (`migrations/0005_app_settings.sql` と同等のテーブルは起動時にも自動作成)。
+- 1日の対談数の上限: 管理画面の上部で、全利用者の合計で1日に新しく作れる対談の数を設定できます。既定は 1000、日本時間の0時にリセット、0 にすると新規作成を止めます。上限に達すると `POST /api/sessions` が 429 を返します (保存済みの対談を開くことはできます)。設定は D1 の `app_settings` に保存します (`migrations/0005_app_settings.sql` と同等のテーブルは起動時にも自動作成)。
 
 ## 一覧のページ送り
 
 トップページの一覧は1ページ24件で、`/?page=N` (ジャンル指定と併用できる `/?genre=…&page=N`) で切り替えます。1ページ目は `page` を省略します。範囲外のページは端に寄せます。`GET /api/sessions` も `page` と `limit` (1〜100) を受け付け、`total` と `totalPages` を返します。各ページは普通のリンクなので、SSR とエッジキャッシュはページごとに効きます。
+
+## ファビコンと管理画面のURL
+
+- ファビコンは `public/` にあります (`favicon.svg` が本体、`favicon-32.png` / `favicon.ico` / `apple-touch-icon.png` は `python scripts/make-favicons.py public` で同じ図形から生成。Pillow が必要)。
+- 管理画面のURLは `/admin` です。旧URLの `/admin/personas` は 301 で `/admin` に転送します。Cloudflare Access のパスには `/admin` 自体も含めてください (`/admin/*` だけでは `/admin` が対象外です)。
 

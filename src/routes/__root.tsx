@@ -12,10 +12,10 @@ export const Route = createRootRoute({
       { title: "Persona-Cast | URLをAIペルソナが語り合う" },
     ],
     links: [
-      {
-        rel: "icon",
-        href: "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>",
-      },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "icon", href: "/favicon-32.png", type: "image/png", sizes: "32x32" },
+      { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
     ],
   }),
   component: RootComponent,
@@ -24,7 +24,7 @@ export const Route = createRootRoute({
 const NAV = [
   { to: "/", label: "対談" },
   { to: "/memories", label: "記憶検索" },
-  { to: "/admin/personas", label: "ペルソナ管理" },
+  { to: "/admin", label: "管理" },
 ] as const;
 
 function RootComponent() {
