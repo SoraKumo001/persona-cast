@@ -1,8 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="7" fill="#6366f1"/>
-  <g transform="translate(2.8 2.8) scale(1.1)" fill="none" stroke="#ffffff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
-    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-    <line x1="12" x2="12" y1="19" y2="22"/>
-  </g>
+  <defs>
+    <linearGradient id="pc-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4338CA"/>
+      <stop offset="45%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+  <!-- Background with subtle inner highlight -->
+  <rect width="32" height="32" rx="7.5" fill="url(#pc-grad)"/>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="7" fill="none" stroke="#ffffff" stroke-width="1" stroke-opacity="0.22"/>
+  
+  <!-- Left Persona Voice Waves (Dynamic Dialogue) -->
+  <line x1="4.5" y1="13" x2="4.5" y2="17" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-opacity="0.75"/>
+  <line x1="8" y1="10" x2="8" y2="20" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-opacity="0.9"/>
+  
+  <!-- Right Persona Voice Waves -->
+  <line x1="24" y1="10" x2="24" y2="20" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-opacity="0.9"/>
+  <line x1="27.5" y1="13" x2="27.5" y2="17" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-opacity="0.75"/>
+  
+  <!-- Central Studio Mic Capsule -->
+  <rect x="13.5" y="6.5" width="5" height="10" rx="2.5" fill="#ffffff"/>
+  <!-- Grille accent slit -->
+  <line x1="13.5" y1="11.5" x2="18.5" y2="11.5" stroke="#6366F1" stroke-width="0.8" stroke-opacity="0.85"/>
+  
+  <!-- Mic Cradle / Suspension -->
+  <path d="M11 12.5v1.5a5 5 0 0 0 10 0v-1.5" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+  
+  <!-- Stand Stem & Base -->
+  <line x1="16" y1="19" x2="16" y2="23" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+  <line x1="13" y1="23.5" x2="19" y2="23.5" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
 </svg>

@@ -1,6 +1,5 @@
 import { Link, Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import React from "react";
-import { Mic } from "lucide-react";
 import { THEME_INIT_SCRIPT, ThemeToggle } from "../client/components/ThemeToggle";
 import "../client/index.css";
 
@@ -39,9 +38,13 @@ function RootComponent() {
         <header className="sticky top-0 z-20 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
             <Link to="/" className="flex items-center gap-2 font-semibold tracking-tight">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500 text-white">
-                <Mic className="h-4 w-4" />
-              </span>
+              <img
+                src="/favicon.svg"
+                alt="Persona-Cast"
+                width={28}
+                height={28}
+                className="h-7 w-7 rounded-lg shadow-sm"
+              />
               <span className="hidden sm:inline">Persona-Cast</span>
             </Link>
             <nav className="flex items-center gap-1 text-sm" aria-label="メイン">
