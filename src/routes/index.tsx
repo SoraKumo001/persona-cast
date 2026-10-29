@@ -46,13 +46,12 @@ function NewDialogueForm() {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await postJson<{ sessionId: string; existing: boolean; totalTurns?: number }>("/api/sessions", {
+      const res = await postJson<{ sessionId: string; existing: boolean }>("/api/sessions", {
         url: url.trim(),
       });
       await navigate({
         to: "/s/$id",
         params: { id: res.sessionId },
-        search: res.existing || !res.totalTurns ? {} : { turns: res.totalTurns },
       });
     } catch (err: any) {
       setError(err.message);

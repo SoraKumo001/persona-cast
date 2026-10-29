@@ -163,3 +163,12 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 - 応答には `X-Cache: HIT|MISS` が付きます。ペルソナ編集の反映は最大10分遅れることがあります。
 - Cache API は独自ドメイン (ゾーン) でのみ効きます。`*.workers.dev` では何もしません。
 
+## 公開APIの保護
+
+認証なしの公開エンドポイントは LLM・Workers AI を呼ぶため、悪用でコストが膨らまないようにしています。
+
+- `GET /api/sessions/:id/stream`: 発言が保存済みの対談は 409 で拒否し、生成は同時に1つだけ (`sessions.generating_at` に印を付ける。10分で失効)。発言数は参加人数から決まり、`turns` や `model` はクライアントから指定できません。
+- レート制限 (IPごと、D1 の `rate_limits` テーブル): `POST /api/sessions` は新規の記事取得のみ 10回/時、`/stream` は 20回/時、`/api/memories/search` は 60回/分。超えると 429 (`Retry-After` 付き)。IP は `CF-Connecting-IP` を使うため、Cloudflare を通さないローカル開発では制限されません。
+- `/api/memories/search` の `limit` (1〜20)、`minScore` (0〜1)、クエリ長 (500文字) は範囲を検証します。
+- 既存のDBには、起動時に `generating_at` 列と `rate_limits` テーブルが自動で追加されます (`migrations/0004_generation_lock_rate_limit.sql` と同等)。
+

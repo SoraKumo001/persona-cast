@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { Env } from "../types";
 import { cacheFor } from "../cache";
+import { rateLimit } from "../middleware/rate-limit";
 import { scrapeUrl, ScrapeError } from "../services/scraper";
 import { normalizeUrl } from "../services/url-normalize";
 import { analyzeArticle, defaultTurns, PersonaCandidate } from "../services/analyze";
@@ -87,6 +88,10 @@ app.post("/", async (c) => {
   const existing = await findSessionByNormalizedUrl(c.env.DB, normalizedUrl);
   if (existing) return existingResponse(existing);
 
+  // 新しい記事の取得 (外部アクセス + LLM) だけを制限する。保存済みの対談を開くだけなら対象外
+  const limited = await rateLimit(c, "create", 10, 3600);
+  if (limited) return limited;
+
   // 2. URLから記事内容・OGPを抽出
   let article;
   try {
@@ -156,14 +161,37 @@ ${article.content.slice(0, 300)}`, c.env, 3, 0.45),
 });
 
 // SSEによるリアルタイム対談ストリーミング
+// 対談の生成 (SSE)。生成済みの対談は作り直せない。発言数は人数から決め、モデルは固定 (クライアントからは指定できない)
 app.get("/:id/stream", async (c) => {
   const sessionId = c.req.param("id");
-  const totalTurns = parseInt(c.req.query("turns") || "6", 10);
-  const modelName = c.req.query("model") || undefined;
+  if (c.env.DB) await ensureDatabaseTables(c.env.DB);
+
+  const session: any = await c.env.DB.prepare(
+    `SELECT persona_ids as personaIds, (SELECT COUNT(*) FROM messages m WHERE m.session_id = sessions.id) as messageCount
+     FROM sessions WHERE id = ?`
+  )
+    .bind(sessionId)
+    .first();
+  if (!session) return c.json({ error: "セッションが見つかりません" }, 404);
+  if (session.messageCount > 0) return c.json({ error: "この対談は生成済みです" }, 409);
+
+  const limited = await rateLimit(c, "stream", 20, 3600);
+  if (limited) return limited;
+
+  // 同じ対談を同時に生成させない (生成中の印を原子的に付ける。10分以上前の印は失効扱い)
+  const now = new Date();
+  const claim = await c.env.DB.prepare(
+    "UPDATE sessions SET generating_at = ? WHERE id = ? AND (generating_at IS NULL OR generating_at < ?)"
+  )
+    .bind(now.toISOString(), sessionId, new Date(now.getTime() - 10 * 60 * 1000).toISOString())
+    .run();
+  if (!claim.meta.changes) return c.json({ error: "この対談は生成中です" }, 409);
+
+  const totalTurns = defaultTurns(JSON.parse(session.personaIds || "[]").length);
 
   return streamSSE(c, async (stream) => {
     try {
-      for await (const event of orchestrateDialogue(sessionId, c.env, totalTurns, modelName)) {
+      for await (const event of orchestrateDialogue(sessionId, c.env, totalTurns)) {
         await stream.writeSSE({
           event: event.type,
           data: JSON.stringify(event.data),
@@ -180,6 +208,9 @@ app.get("/:id/stream", async (c) => {
         event: "error",
         data: JSON.stringify({ message: err.message || "Unknown error" }),
       });
+    } finally {
+      // 失敗して発言が1件もなければ、やり直せるように印を外す
+      await c.env.DB.prepare("UPDATE sessions SET generating_at = NULL WHERE id = ?").bind(sessionId).run().catch(() => {});
     }
   });
 });

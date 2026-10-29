@@ -88,6 +88,12 @@ export async function ensureDatabaseTables(db: D1Database): Promise<void> {
     await db.prepare("UPDATE sessions SET genre = 'その他' WHERE genre IS NULL").run();
     await db.prepare("CREATE INDEX IF NOT EXISTS idx_sessions_genre ON sessions(genre)").run();
 
+    // migrations/0004 相当
+    await addColumnIfMissing(db, "sessions", "generating_at", "TEXT");
+    await db
+      .prepare("CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL)")
+      .run();
+
     // 正規化URL未設定の既存セッションをバックフィル
     const { results: unnormalized } = await db
       .prepare("SELECT id, source_url FROM sessions WHERE normalized_url IS NULL")

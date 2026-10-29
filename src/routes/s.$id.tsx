@@ -8,10 +8,6 @@ import { getSessionDetailFn } from "../server-fns/sessions";
 import { ChatMessage, PastMemory, Persona, SessionSummary, formatDateTime } from "../client/lib/api";
 
 export const Route = createFileRoute("/s/$id")({
-  validateSearch: (search: Record<string, unknown>): { turns?: number } => {
-    const turns = Number(search.turns);
-    return Number.isInteger(turns) && turns > 0 && turns <= 20 ? { turns } : {};
-  },
   loader: async ({ params }) => {
     const [meta, detail] = await Promise.all([getSessionMeta({ data: params.id }), getSessionDetailFn({ data: params.id })]);
     return { meta, detail };
@@ -64,8 +60,6 @@ function SessionPage() {
 }
 
 function SessionView({ id, detail }: { id: string; detail: Detail | null }) {
-  const { turns = 6 } = Route.useSearch();
-
   const session = (detail?.session ?? null) as SessionSummary | null;
   const saved = detail?.messages ?? [];
   const [participants, setParticipants] = React.useState<Persona[]>((detail?.participants ?? []) as Persona[]);
@@ -97,7 +91,7 @@ function SessionView({ id, detail }: { id: string; detail: Detail | null }) {
     if (!session || saved.length > 0) return;
     let source: EventSource | null = null;
     setStatus("streaming");
-    source = new EventSource(`/api/sessions/${id}/stream?turns=${turns}`);
+    source = new EventSource(`/api/sessions/${id}/stream`);
     const parse = (e: Event) => JSON.parse((e as MessageEvent).data);
 
     source.addEventListener("session_start", (e) => {
@@ -147,7 +141,7 @@ function SessionView({ id, detail }: { id: string; detail: Detail | null }) {
     });
     return () => source?.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, turns]);
+  }, [id]);
 
   // 末尾付近を見ている間だけ自動スクロールする
   React.useEffect(() => {

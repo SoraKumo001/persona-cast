@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { Env } from "../types";
 import { searchSimilarMemories } from "../services/memory";
 import { ensureDatabaseTables } from "../presets";
+import { clampFloat, clampInt, rateLimit } from "../middleware/rate-limit";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -13,14 +14,22 @@ app.get("/search", async (c) => {
     return c.json({ error: "検索クエリ (q) を指定してください" }, 400);
   }
 
-  const limit = parseInt(c.req.query("limit") || "5", 10);
-  const minScore = parseFloat(c.req.query("minScore") || "0.35");
+  if (query.length > 500) {
+    return c.json({ error: "検索クエリは500文字以内にしてください" }, 400);
+  }
+  const limit = clampInt(c.req.query("limit"), 1, 20, 5);
+  const minScore = clampFloat(c.req.query("minScore"), 0, 1, 0.35);
+
+  // 埋め込み (Workers AI) を呼ぶので回数を制限する
+  const limited = await rateLimit(c, "memory-search", 60, 60);
+  if (limited) return limited;
 
   try {
     const results = await searchSimilarMemories(query, c.env, limit, minScore);
     return c.json({ query, results });
   } catch (err: any) {
-    return c.json({ error: `検索に失敗しました: ${err.message}` }, 500);
+    console.error("Memory search failed:", err);
+    return c.json({ error: "検索に失敗しました" }, 500);
   }
 });
 
