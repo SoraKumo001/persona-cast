@@ -1,3 +1,5 @@
+import { streamText, generateText } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
 import { Env } from "../types";
 
 export interface ChatMessage {
@@ -11,7 +13,23 @@ export interface StreamChunk {
 }
 
 /**
- * OpenCode Go API (OpenAI互換エンドポイント) を呼び出してストリーミング生成
+ * OpenCode Go API を @ai-sdk/openai 経由で呼び出すプロバイダーを作成
+ */
+function getOpenCodeProvider(env: Env, sessionId: string) {
+  const apiKey = env.OPENCODE_API_KEY;
+  const baseUrl = env.OPENCODE_BASE_URL || "https://opencode.ai/inference/go/openai/v1";
+
+  return createOpenAI({
+    baseURL: baseUrl.replace(/\/+$/, ""),
+    apiKey: apiKey || "",
+    headers: {
+      "x-opencode-session": `ses_${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}`,
+    },
+  });
+}
+
+/**
+ * @ai-sdk の streamText を使ってリアルタイムストリーミング生成
  */
 export async function* streamChatCompletion(
   messages: ChatMessage[],
@@ -20,8 +38,7 @@ export async function* streamChatCompletion(
   modelName?: string
 ): AsyncGenerator<string, void, unknown> {
   const apiKey = env.OPENCODE_API_KEY;
-  const baseUrl = env.OPENCODE_BASE_URL || "https://opencode.ai/inference/go/openai/v1";
-  const model = modelName || env.OPENCODE_DEFAULT_MODEL || "deepseek-v4.1-flash";
+  const modelId = modelName || env.OPENCODE_DEFAULT_MODEL || "deepseek-v4.1-flash";
 
   // APIキーが未設定の場合は、開発・デモ用のシミュレーション応答を返す
   if (!apiKey || apiKey === "your-opencode-api-key-here") {
@@ -29,72 +46,23 @@ export async function* streamChatCompletion(
     return;
   }
 
-  const endpoint = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const provider = getOpenCodeProvider(env, sessionId);
+  const model = provider(modelId);
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-      // OpenCode Go 用のセッション指定ヘッダー
-      "x-opencode-session": `ses_${sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      stream: true,
-      temperature: 0.75,
-      max_tokens: 1200,
-    }),
+  const result = streamText({
+    model,
+    messages: messages as any,
+    maxTokens: 1200,
+    temperature: 0.75,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenCode Go API Error (${response.status}): ${errorText}`);
-  }
-
-  if (!response.body) {
-    throw new Error("No response body received from LLM API.");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith(":")) continue;
-
-      if (trimmed.startsWith("data: ")) {
-        const dataStr = trimmed.slice(6);
-        if (dataStr === "[DONE]") {
-          return;
-        }
-
-        try {
-          const json = JSON.parse(dataStr);
-          const delta = json.choices?.[0]?.delta?.content;
-          if (delta) {
-            yield delta;
-          }
-        } catch {
-          // 不完全なJSON行はスキップ
-        }
-      }
-    }
+  for await (const chunk of result.textStream) {
+    yield chunk;
   }
 }
 
 /**
- * 単発完了用（要約や記憶チャンク抽出用）
+ * @ai-sdk の generateText を使って要約・記憶抽出用の一括生成
  */
 export async function generateChatCompletion(
   messages: ChatMessage[],
@@ -102,11 +70,28 @@ export async function generateChatCompletion(
   sessionId: string,
   modelName?: string
 ): Promise<string> {
-  let full = "";
-  for await (const chunk of streamChatCompletion(messages, env, sessionId, modelName)) {
-    full += chunk;
+  const apiKey = env.OPENCODE_API_KEY;
+  const modelId = modelName || env.OPENCODE_DEFAULT_MODEL || "deepseek-v4.1-flash";
+
+  if (!apiKey || apiKey === "your-opencode-api-key-here") {
+    let full = "";
+    for await (const chunk of simulateDialogueResponse(messages)) {
+      full += chunk;
+    }
+    return full;
   }
-  return full;
+
+  const provider = getOpenCodeProvider(env, sessionId);
+  const model = provider(modelId);
+
+  const { text } = await generateText({
+    model,
+    messages: messages as any,
+    maxTokens: 1000,
+    temperature: 0.7,
+  });
+
+  return text;
 }
 
 /**
