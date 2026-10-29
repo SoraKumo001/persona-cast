@@ -28,6 +28,15 @@ function getOpenCodeProvider(env: Env, sessionId: string) {
   });
 }
 
+/** ai v7 は messages 内の system ロールを受け付けないため、instructions に分離する */
+function splitSystem(messages: ChatMessage[]) {
+  const system = messages.filter((m) => m.role === "system").map((m) => m.content);
+  return {
+    instructions: system.length > 0 ? system.join("\n\n") : undefined,
+    messages: messages.filter((m) => m.role !== "system") as any,
+  };
+}
+
 /**
  * @ai-sdk の streamText を使ってリアルタイムストリーミング生成
  */
@@ -49,16 +58,22 @@ export async function* streamChatCompletion(
   const provider = getOpenCodeProvider(env, sessionId);
   const model = provider(modelId);
 
+  // streamText はエラーを握りつぶして空のストリームを返すため、onError で捕捉して投げ直す
+  let streamError: unknown;
   const result = streamText({
     model,
-    messages: messages as any,
-    maxTokens: 1200,
+    ...splitSystem(messages),
+    maxOutputTokens: 1200,
     temperature: 0.75,
+    onError: ({ error }) => {
+      streamError = error;
+    },
   });
 
   for await (const chunk of result.textStream) {
     yield chunk;
   }
+  if (streamError) throw streamError;
 }
 
 /**
@@ -86,8 +101,8 @@ export async function generateChatCompletion(
 
   const { text } = await generateText({
     model,
-    messages: messages as any,
-    maxTokens: 1000,
+    ...splitSystem(messages),
+    maxOutputTokens: 1000,
     temperature: 0.7,
   });
 

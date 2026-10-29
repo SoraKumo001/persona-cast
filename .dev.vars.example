@@ -5,3 +5,9 @@ OPENCODE_API_KEY="your-opencode-api-key-here"
 OPENCODE_BASE_URL="https://opencode.ai/inference/go/openai/v1"
 OPENCODE_DEFAULT_MODEL="deepseek-v4.1-flash"
 EMBEDDING_MODEL="@cf/baai/bge-m3"
+
+# Cloudflare Access (管理画面 /admin, /api/admin の認証)
+# 本番は ACCESS_TEAM_DOMAIN / ACCESS_AUD を設定する。ローカル開発のみ ACCESS_DISABLED=true で検証をスキップ(localhost限定)
+ACCESS_DISABLED="true"
+ACCESS_TEAM_DOMAIN=""
+ACCESS_AUD=""

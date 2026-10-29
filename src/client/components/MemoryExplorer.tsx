@@ -32,7 +32,7 @@ export const MemoryExplorer: React.FC<MemoryExplorerProps> = ({ onOpenSession })
     setIsLoading(true);
     try {
       const res = await fetch("/api/memories");
-      const data = await res.json();
+      const data: any = await res.json();
       if (data.memories) {
         setMemories(data.memories);
       }
@@ -55,7 +55,7 @@ export const MemoryExplorer: React.FC<MemoryExplorerProps> = ({ onOpenSession })
     setIsSearchMode(true);
     try {
       const res = await fetch(`/api/memories/search?q=${encodeURIComponent(query.trim())}`);
-      const data = await res.json();
+      const data: any = await res.json();
       if (data.results) {
         setMemories(data.results);
       }

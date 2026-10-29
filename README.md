@@ -108,3 +108,29 @@ cf workers secrets put OPENCODE_API_KEY
 bun run deploy
 # または cf deploy
 ```
+
+---
+
+## 管理者認証 (Cloudflare Access) とアバター (R2)
+
+ペルソナの編集は管理者のみ。`/admin/*` (画面) と `/api/admin/*` (API) を Cloudflare Access で保護します。
+Worker 側でも `Cf-Access-Jwt-Assertion` の署名・`aud`・`iss` を検証します (設定が欠けていれば常に拒否)。
+
+1. **R2 バケット作成**: `cf r2 bucket create persona-cast-avatars`
+2. **Access アプリ作成** (Zero Trust ダッシュボード → Access → Applications → Self-hosted)
+   - パス: `/admin/*` と `/api/admin/*` の2つ
+   - ポリシー: 許可する管理者のメールアドレスのみ Allow
+   - 発行された **Application Audience (AUD) タグ** と **チームドメイン** (`<team>.cloudflareaccess.com`) を控える
+3. **シークレット登録**
+   ```bash
+   cf workers secrets put ACCESS_TEAM_DOMAIN
+   cf workers secrets put ACCESS_AUD
+   ```
+4. **マイグレーション適用**: `bun run d1:migrate` (`0002_avatars_urls_ogp.sql`)
+
+ローカル開発では `.dev.vars` に `ACCESS_DISABLED="true"` を設定すると、`localhost` に限り検証をスキップします。
+
+## 同一URLの扱い
+
+URLは正規化 (`https` 統一・`www.`/fragment/トラッキングクエリ除去・クエリ整列・canonical 採用) して比較します。
+同じページの対談が既にある場合は、再取得・再生成せず保存済みの対談を表示します。

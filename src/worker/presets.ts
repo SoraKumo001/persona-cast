@@ -1,4 +1,5 @@
 import { Persona } from "./types";
+import { normalizeUrl } from "./services/url-normalize";
 
 export const DEFAULT_PERSONAS: Persona[] = [
   {
@@ -69,6 +70,34 @@ export async function ensureDatabaseTables(db: D1Database): Promise<void> {
       )
       .run();
 
+    // migrations/0002 相当の列を追加 (未適用のDB向け。既にあればスキップ)
+    await addColumnIfMissing(db, "personas", "avatar_type", "TEXT NOT NULL DEFAULT 'emoji'");
+    await addColumnIfMissing(db, "personas", "avatar_key", "TEXT");
+    await addColumnIfMissing(db, "personas", "updated_at", "TEXT");
+    await addColumnIfMissing(db, "personas", "archived_at", "TEXT");
+    await addColumnIfMissing(db, "sessions", "normalized_url", "TEXT");
+    await addColumnIfMissing(db, "sessions", "og_json", "TEXT");
+    await addColumnIfMissing(db, "sessions", "summary", "TEXT");
+    await addColumnIfMissing(db, "memory_chunks", "normalized_url", "TEXT");
+    await db
+      .prepare("CREATE INDEX IF NOT EXISTS idx_sessions_normalized_url ON sessions(normalized_url)")
+      .run();
+
+    // 正規化URL未設定の既存セッションをバックフィル
+    const { results: unnormalized } = await db
+      .prepare("SELECT id, source_url FROM sessions WHERE normalized_url IS NULL")
+      .all<{ id: string; source_url: string }>();
+    for (const row of unnormalized) {
+      try {
+        await db
+          .prepare("UPDATE sessions SET normalized_url = ? WHERE id = ?")
+          .bind(normalizeUrl(row.source_url), row.id)
+          .run();
+      } catch {
+        // 不正なURLは未設定のまま残す
+      }
+    }
+
     // 初期ペルソナが空ならシード
     const countRow: any = await db.prepare("SELECT count(*) as count FROM personas").first();
     if (!countRow || countRow.count === 0) {
@@ -87,4 +116,10 @@ export async function ensureDatabaseTables(db: D1Database): Promise<void> {
   } catch (err) {
     console.warn("ensureDatabaseTables warning:", err);
   }
+}
+
+async function addColumnIfMissing(db: D1Database, table: string, column: string, ddl: string) {
+  const { results } = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  if (results.some((r) => r.name === column)) return;
+  await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`).run();
 }

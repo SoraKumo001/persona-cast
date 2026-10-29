@@ -1,6 +1,7 @@
 import { Env, Persona, DialogueSession, Message } from "../types";
 import { streamChatCompletion, generateChatCompletion, ChatMessage } from "./llm";
 import { searchSimilarMemories, saveMemoryChunk, MemorySearchResult } from "./memory";
+import { PERSONA_COLUMNS, toPersona } from "./persona-store";
 
 export interface DialogueEvent {
   type: "session_start" | "turn_start" | "chunk" | "turn_end" | "session_end" | "error";
@@ -37,14 +38,14 @@ export async function* orchestrateDialogue(
   // 2. 参加ペルソナ情報の取得
   const placeholders = personaIds.map(() => "?").join(",");
   const { results: personaRows } = await env.DB.prepare(
-    `SELECT id, name, role, avatar, theme_color, personality, speaking_style FROM personas WHERE id IN (${placeholders})`
+    `SELECT ${PERSONA_COLUMNS} FROM personas WHERE id IN (${placeholders})`
   )
     .bind(...personaIds)
     .all();
 
   const personasMap = new Map<string, any>();
   for (const p of personaRows as any[]) {
-    personasMap.set(p.id, p);
+    personasMap.set(p.id, toPersona(p));
   }
   const activePersonas = personaIds.map((id) => personasMap.get(id)).filter(Boolean);
 

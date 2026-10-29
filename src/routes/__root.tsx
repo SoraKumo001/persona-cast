@@ -1,5 +1,6 @@
-import { Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { Link, Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import React from "react";
+import { Mic } from "lucide-react";
 import "../client/index.css";
 
 export const Route = createRootRoute({
@@ -7,7 +8,7 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Persona-Cast | AIペルソナがURL記事を語り合う対話プラットフォーム (SSR)" },
+      { title: "Persona-Cast | URLをAIペルソナが語り合う" },
     ],
     links: [
       {
@@ -19,14 +20,44 @@ export const Route = createRootRoute({
   component: RootComponent,
 });
 
+const NAV = [
+  { to: "/", label: "新しい対談" },
+  { to: "/history", label: "履歴・記憶" },
+  { to: "/admin/personas", label: "ペルソナ管理" },
+] as const;
+
 function RootComponent() {
   return (
     <html lang="ja">
       <head>
         <HeadContent />
       </head>
-      <body className="bg-slate-950 text-slate-100 min-h-screen antialiased selection:bg-indigo-500 selection:text-white">
-        <Outlet />
+      <body className="min-h-screen bg-zinc-950 text-zinc-100 antialiased selection:bg-indigo-500 selection:text-white">
+        <header className="sticky top-0 z-20 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur">
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
+            <Link to="/" className="flex items-center gap-2 font-semibold tracking-tight">
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500 text-white">
+                <Mic className="h-4 w-4" />
+              </span>
+              Persona-Cast
+            </Link>
+            <nav className="flex items-center gap-1 text-sm" aria-label="メイン">
+              {NAV.map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  activeOptions={{ exact: item.to === "/" }}
+                  className="rounded-lg px-3 py-1.5 text-zinc-400 transition-colors hover:text-zinc-100 data-[status=active]:bg-zinc-800 data-[status=active]:text-zinc-50"
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          </div>
+        </header>
+        <main className="mx-auto max-w-5xl px-4 py-8">
+          <Outlet />
+        </main>
         <Scripts />
       </body>
     </html>

@@ -2,16 +2,20 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { Env } from "./types";
 import personasRouter from "./routes/personas";
+import adminPersonasRouter from "./routes/admin-personas";
 import sessionsRouter from "./routes/sessions";
 import memoriesRouter from "./routes/memories";
 
 const app = new Hono<{ Bindings: Env }>();
 
-// CORS設定
-app.use("/api/*", cors());
+// 公開APIのみ CORS を許可 (管理APIは同一オリジン + Cloudflare Access のみ)
+app.use("/api/personas/*", cors());
+app.use("/api/sessions/*", cors());
+app.use("/api/memories/*", cors());
 
 // APIルートのマウント
 app.route("/api/personas", personasRouter);
+app.route("/api/admin/personas", adminPersonasRouter);
 app.route("/api/sessions", sessionsRouter);
 app.route("/api/memories", memoriesRouter);
 

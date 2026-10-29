@@ -5,6 +5,13 @@ import tailwindcss from "@tailwindcss/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 
 export default defineConfig({
+  // index.html によるSPAフォールバックを無効化し、SSR (TanStack Start) に処理させる
+  appType: "custom",
+  environments: {
+    client: {
+      build: { rollupOptions: { input: "src/client.tsx" } },
+    },
+  },
   plugins: [
     cloudflare({
       viteEnvironment: { name: "ssr" },

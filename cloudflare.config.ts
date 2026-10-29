@@ -21,6 +21,11 @@ export default defineConfig({
         name: "persona-cast-memories",
       }),
       AI: bindings.ai({}),
-    },
+      // シークレット: ローカルは .dev.vars、本番は `cf workers secrets put` で設定
+      OPENCODE_API_KEY: bindings.secret(),
+      ACCESS_TEAM_DOMAIN: bindings.secret(),
+      ACCESS_AUD: bindings.secret(),
+      ACCESS_DISABLED: bindings.secret(), // ローカル開発専用 (localhost でのみ有効)
+      AVATARS: bindings.r2({ name: "persona-cast-avatars" }),    },
   },
 });
