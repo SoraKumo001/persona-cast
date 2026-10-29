@@ -1,17 +1,24 @@
 import React from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, Link2, Loader2, MessagesSquare } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Link2, Loader2, MessagesSquare } from "lucide-react";
 import { PersonaAvatar } from "../client/components/PersonaAvatar";
 import { GenreCount, SessionListItem, formatDate, hostOf, postJson } from "../client/lib/api";
+import { pageItems } from "../client/lib/pagination";
 import { getSessionList } from "../server-fns/sessions";
 import { getSiteOrigin } from "../server-fns/site-meta";
 
 export const Route = createFileRoute("/")({
-  validateSearch: (search: Record<string, unknown>): { genre?: string } =>
-    typeof search.genre === "string" && search.genre ? { genre: search.genre } : {},
-  loaderDeps: ({ search }) => ({ genre: search.genre }),
+  validateSearch: (search: Record<string, unknown>): { genre?: string; page?: number } => {
+    const page = Number(search.page);
+    return {
+      ...(typeof search.genre === "string" && search.genre ? { genre: search.genre } : {}),
+      // 1ページ目は省略する (URLを1つに保つ)
+      ...(Number.isInteger(page) && page > 1 ? { page } : {}),
+    };
+  },
+  loaderDeps: ({ search }) => ({ genre: search.genre, page: search.page }),
   loader: async ({ deps }) => {
-    const [list, origin] = await Promise.all([getSessionList({ data: deps.genre }), getSiteOrigin()]);
+    const [list, origin] = await Promise.all([getSessionList({ data: { genre: deps.genre, page: deps.page } }), getSiteOrigin()]);
     return { ...list, origin };
   },
   head: ({ loaderData }) => {
@@ -53,11 +60,16 @@ function isHttpUrl(value: string) {
 
 function HomePage() {
   const { genre } = Route.useSearch();
-  const { sessions, genres } = Route.useLoaderData() as { sessions: SessionListItem[]; genres: GenreCount[] };
+  const { sessions, genres, page, totalPages } = Route.useLoaderData() as {
+    sessions: SessionListItem[];
+    genres: GenreCount[];
+    page: number;
+    totalPages: number;
+  };
   return (
     <div className="space-y-10">
       <NewDialogueForm />
-      <SessionList genre={genre} sessions={sessions} genres={genres} />
+      <SessionList genre={genre} sessions={sessions} genres={genres} page={page} totalPages={totalPages} />
     </div>
   );
 }
@@ -133,7 +145,19 @@ function NewDialogueForm() {
   );
 }
 
-function SessionList({ genre, sessions, genres }: { genre?: string; sessions: SessionListItem[]; genres: GenreCount[] }) {
+function SessionList({
+  genre,
+  sessions,
+  genres,
+  page,
+  totalPages,
+}: {
+  genre?: string;
+  sessions: SessionListItem[];
+  genres: GenreCount[];
+  page: number;
+  totalPages: number;
+}) {
   const total = genres.reduce((n, g) => n + g.count, 0);
   const chip = (active: boolean) =>
     `whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
@@ -186,7 +210,60 @@ function SessionList({ genre, sessions, genres }: { genre?: string; sessions: Se
           ))}
         </ul>
       )}
+
+      {totalPages > 1 && <Pagination genre={genre} page={page} totalPages={totalPages} />}
     </section>
+  );
+}
+
+/** ページ送り。各ページは ?page=N のリンクなので、URLで共有でき、SSRもキャッシュもページごとに効く */
+function Pagination({ genre, page, totalPages }: { genre?: string; page: number; totalPages: number }) {
+  const cell =
+    "inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-3 text-sm transition-colors";
+  const idle = "border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-600";
+  const searchFor = (p: number) => ({ ...(genre ? { genre } : {}), ...(p > 1 ? { page: p } : {}) });
+
+  return (
+    <nav className="flex flex-wrap items-center justify-center gap-1.5 pt-2" aria-label="ページ送り">
+      {page > 1 ? (
+        <Link to="/" search={searchFor(page - 1)} rel="prev" className={`${cell} ${idle} gap-1`}>
+          <ChevronLeft className="h-4 w-4" /> 前へ
+        </Link>
+      ) : (
+        <span className={`${cell} gap-1 border-zinc-900 text-zinc-600`} aria-disabled="true">
+          <ChevronLeft className="h-4 w-4" /> 前へ
+        </span>
+      )}
+
+      {pageItems(page, totalPages).map((item, i) =>
+        item === "…" ? (
+          <span key={`gap-${i}`} className="px-1 text-zinc-600" aria-hidden="true">
+            …
+          </span>
+        ) : (
+          <Link
+            key={item}
+            to="/"
+            search={searchFor(item)}
+            className={`${cell} ${item === page ? "border-indigo-500 bg-indigo-500/15 text-indigo-100" : idle}`}
+            aria-current={item === page ? "page" : undefined}
+            aria-label={`${item}ページ目`}
+          >
+            {item}
+          </Link>
+        )
+      )}
+
+      {page < totalPages ? (
+        <Link to="/" search={searchFor(page + 1)} rel="next" className={`${cell} ${idle} gap-1`}>
+          次へ <ChevronRight className="h-4 w-4" />
+        </Link>
+      ) : (
+        <span className={`${cell} gap-1 border-zinc-900 text-zinc-600`} aria-disabled="true">
+          次へ <ChevronRight className="h-4 w-4" />
+        </span>
+      )}
+    </nav>
   );
 }
 

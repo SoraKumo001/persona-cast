@@ -10,17 +10,17 @@ async function getDb(): Promise<D1Database> {
 }
 
 export const getSessionList = createServerFn({ method: "GET" })
-  .validator((genre: string | undefined) => genre)
-  .handler(async ({ data: genre }) => {
+  .validator((input: { genre?: string; page?: number }) => input)
+  .handler(async ({ data: { genre, page } }) => {
     const { listSessions } = await import("../worker/services/session-queries");
     const { cacheFor } = await import("../worker/cache");
     try {
-      const result = await listSessions(await getDb(), { genre });
+      const result = await listSessions(await getDb(), { genre, page });
       cacheFor(60, { maxAge: 30 });
       return result;
     } catch (err) {
       console.error("Failed to list sessions:", err);
-      return { sessions: [], genres: [] };
+      return { sessions: [], genres: [], page: 1, pageSize: 24, total: 0, totalPages: 1 };
     }
   });
 

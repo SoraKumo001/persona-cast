@@ -2,14 +2,14 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { Env } from "../types";
 import { cacheFor } from "../cache";
-import { rateLimit } from "../middleware/rate-limit";
+import { clampInt, rateLimit } from "../middleware/rate-limit";
 import { ADULT_MESSAGE, isAdultHost } from "../services/adult-filter";
 import { countTodaySessions, getDailyLimit } from "../services/settings";
 import { scrapeUrl, ScrapeError } from "../services/scraper";
 import { normalizeUrl } from "../services/url-normalize";
 import { analyzeArticle, defaultTurns, PersonaCandidate } from "../services/analyze";
 import { DEFAULT_GENRE } from "../services/genres";
-import { SESSION_COLUMNS, getSessionDetail, listSessions, toSession } from "../services/session-queries";
+import { PAGE_SIZE, SESSION_COLUMNS, getSessionDetail, listSessions, toSession } from "../services/session-queries";
 import { searchSimilarMemories } from "../services/memory";
 import { orchestrateDialogue } from "../services/dialogue";
 import { getSessionOgpImage } from "../services/ogp-image";
@@ -31,11 +31,15 @@ app.get("/", async (c) => {
     // 新しい対談が増えるので短く。管理操作で壊れた表示も1分で戻る
     cacheFor(60, { maxAge: 30 });
     return c.json(
-      await listSessions(c.env.DB, { genre: c.req.query("genre"), limit: parseInt(c.req.query("limit") || "48", 10) || 48 })
+      await listSessions(c.env.DB, {
+        genre: c.req.query("genre"),
+        page: clampInt(c.req.query("page"), 1, 100_000, 1),
+        pageSize: clampInt(c.req.query("limit"), 1, 100, PAGE_SIZE),
+      })
     );
   } catch (err) {
     console.error("Failed to list sessions:", err);
-    return c.json({ sessions: [], genres: [] });
+    return c.json({ sessions: [], genres: [], page: 1, pageSize: PAGE_SIZE, total: 0, totalPages: 1 });
   }
 });
 

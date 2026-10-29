@@ -22,16 +22,28 @@ export function toSession(row: any) {
   return { ...rest, ogp, personaIds: JSON.parse(rest.personaIds || "[]") };
 }
 
-/** 対談の一覧。genre で絞り込み、ジャンル別の件数も返す */
-export async function listSessions(db: D1Database, options: { genre?: string; limit?: number } = {}) {
-  const limit = Math.min(Math.max(options.limit ?? 48, 1), 100);
+export const PAGE_SIZE = 24;
+
+/** 対談の一覧。genre で絞り込み、ジャンル別の件数と、ページ送りの情報も返す */
+export async function listSessions(db: D1Database, options: { genre?: string; page?: number; pageSize?: number } = {}) {
+  const pageSize = Math.min(Math.max(options.pageSize ?? PAGE_SIZE, 1), 100);
   const genre = options.genre && isGenre(options.genre) ? options.genre : undefined;
 
   const where = genre ? `WHERE ${HAS_MESSAGES} AND genre = ?` : `WHERE ${HAS_MESSAGES}`;
-  const binds = genre ? [genre, limit] : [limit];
+  const filterBinds = genre ? [genre] : [];
+
+  const countRow = await db
+    .prepare(`SELECT COUNT(*) as count FROM sessions ${where}`)
+    .bind(...filterBinds)
+    .first<{ count: number }>();
+  const total = countRow?.count ?? 0;
+  const totalPages = Math.max(Math.ceil(total / pageSize), 1);
+  // 範囲外のページは端に寄せる (対談が減った後に古いURLを開いても空にならない)
+  const page = Math.min(Math.max(Math.trunc(options.page ?? 1) || 1, 1), totalPages);
+
   const { results } = await db
-    .prepare(`SELECT ${SESSION_COLUMNS} FROM sessions ${where} ORDER BY created_at DESC LIMIT ?`)
-    .bind(...binds)
+    .prepare(`SELECT ${SESSION_COLUMNS} FROM sessions ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
+    .bind(...filterBinds, pageSize, (page - 1) * pageSize)
     .all();
   const sessions = results.map(toSession);
 
@@ -63,6 +75,10 @@ export async function listSessions(db: D1Database, options: { genre?: string; li
       participants: s.personaIds.map((id: string) => personaMap.get(id)).filter(Boolean),
     })),
     genres: genres as { genre: string; count: number }[],
+    page,
+    pageSize,
+    total,
+    totalPages,
   };
 }
 
