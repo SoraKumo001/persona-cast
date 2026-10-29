@@ -44,7 +44,7 @@ export async function* streamChatCompletion(
       messages,
       stream: true,
       temperature: 0.75,
-      max_tokens: 600,
+      max_tokens: 1200,
     }),
   });
 
