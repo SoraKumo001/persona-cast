@@ -1,7 +1,7 @@
 import { Env } from "../types";
 
 /** テンプレートを変えたらインクリメントし、R2のキャッシュを無効化する */
-const TEMPLATE_VERSION = "v2";
+const TEMPLATE_VERSION = "v3";
 
 export interface OgpPersona {
   id: string;
@@ -87,9 +87,9 @@ export function buildOgpHtml(d: OgpImageData): string {
       const color = safeColor(q.persona.themeColor);
       return `<div style="display:flex;align-items:center;gap:20px;">
   ${avatarHtml(q.persona, 64)}
-  <div style="flex:1;background:#ffffff14;border-left:6px solid ${color};border-radius:14px;padding:14px 22px;">
+  <div style="flex:1;background:#ffffff;border:1px solid #dbe2f0;border-left:6px solid ${color};border-radius:14px;padding:14px 22px;">
     <div style="font-size:20px;font-weight:700;color:${color};margin-bottom:4px;">${escapeHtml(q.persona.name)}</div>
-    <div style="font-size:26px;line-height:1.4;color:#f1f5f9;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(excerpt(q.text))}</div>
+    <div style="font-size:26px;line-height:1.4;color:#1e293b;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(excerpt(q.text))}</div>
   </div>
 </div>`;
     })
@@ -97,22 +97,22 @@ export function buildOgpHtml(d: OgpImageData): string {
 
   const stats = d.messageCount > 0 ? `${d.participantCount}人が${d.messageCount}発言で対談` : `${d.participantCount}人が対談`;
 
-  return `<div style="width:1200px;height:630px;box-sizing:border-box;padding:44px 56px;display:flex;flex-direction:column;justify-content:space-between;background:linear-gradient(135deg,#0b1020 0%,#1e1b4b 100%);color:#ffffff;font-family:'Noto Sans JP',sans-serif;">
-  <div style="display:flex;justify-content:space-between;align-items:center;font-size:22px;color:#a5b4fc;">
+  return `<div style="width:1200px;height:630px;box-sizing:border-box;padding:44px 56px;display:flex;flex-direction:column;justify-content:space-between;background:linear-gradient(135deg,#ffffff 0%,#e8ecff 100%);color:#0f172a;font-family:'Noto Sans JP',sans-serif;">
+  <div style="display:flex;justify-content:space-between;align-items:center;font-size:22px;color:#4f46e5;">
     <div style="font-weight:700;">🎙️ Persona-Cast</div>
-    <div style="display:flex;align-items:center;gap:16px;color:#94a3b8;">
-      ${d.genre ? `<div style="background:#6366f133;color:#c7d2fe;border-radius:999px;padding:4px 18px;font-size:20px;">${escapeHtml(d.genre)}</div>` : ""}
+    <div style="display:flex;align-items:center;gap:16px;color:#64748b;">
+      ${d.genre ? `<div style="background:#e0e7ff;color:#4338ca;border-radius:999px;padding:4px 18px;font-size:20px;">${escapeHtml(d.genre)}</div>` : ""}
       <div>${site}</div>
     </div>
   </div>
   <div>
     <div style="font-size:46px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(d.title)}</div>
-    <div style="margin-top:12px;font-size:23px;line-height:1.5;color:#cbd5e1;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(d.summary)}</div>
+    <div style="margin-top:12px;font-size:23px;line-height:1.5;color:#475569;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(d.summary)}</div>
   </div>
   <div style="display:flex;flex-direction:column;gap:14px;">
 ${quotes}
   </div>
-  <div style="font-size:20px;color:#94a3b8;text-align:right;">${stats}</div>
+  <div style="font-size:20px;color:#64748b;text-align:right;">${stats}</div>
 </div>`;
 }
 
@@ -221,14 +221,14 @@ export function buildSiteOgpHtml(d: SiteOgpData): string {
     )
     .join("\n");
 
-  return `<div style="width:1200px;height:630px;box-sizing:border-box;padding:56px 64px;display:flex;flex-direction:column;justify-content:space-between;background:linear-gradient(135deg,#0b1020 0%,#1e1b4b 100%);color:#ffffff;font-family:'Noto Sans JP',sans-serif;">
+  return `<div style="width:1200px;height:630px;box-sizing:border-box;padding:56px 64px;display:flex;flex-direction:column;justify-content:space-between;background:linear-gradient(135deg,#ffffff 0%,#e8ecff 100%);color:#0f172a;font-family:'Noto Sans JP',sans-serif;">
   <div style="display:flex;align-items:center;gap:20px;">
     <div style="width:72px;height:72px;border-radius:20px;background:#6366f1;display:flex;align-items:center;justify-content:center;font-size:42px;">🎙️</div>
     <div style="font-size:52px;font-weight:700;letter-spacing:-1px;">Persona-Cast</div>
   </div>
   <div>
     <div style="font-size:60px;font-weight:700;line-height:1.3;">URLを貼るだけで、<br/>AIたちが記事を語り合う。</div>
-    <div style="margin-top:18px;font-size:28px;line-height:1.5;color:#cbd5e1;">個性の違うAIペルソナが、気になる記事を読んで対談します。</div>
+    <div style="margin-top:18px;font-size:28px;line-height:1.5;color:#475569;">個性の違うAIペルソナが、気になる記事を読んで対談します。</div>
   </div>
   <div style="display:flex;justify-content:flex-start;gap:36px;">
 ${cast}
