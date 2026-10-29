@@ -23,6 +23,12 @@ describe("buildSitemap", () => {
     expect(xml).toContain("<lastmod>2026-10-29T01:02:03.000Z</lastmod>");
   });
 
+  test("ペルソナのページも載せる", () => {
+    const xml = buildSitemap("https://example.com", [], ["ken", "p_1"]);
+    expect(xml).toContain("<loc>https://example.com/persona/ken</loc>");
+    expect(xml).toContain("<loc>https://example.com/persona/p_1</loc>");
+  });
+
   test("対談がなくてもトップは載る", () => {
     expect(buildSitemap("https://example.com", [])).toContain("<loc>https://example.com/</loc>");
   });

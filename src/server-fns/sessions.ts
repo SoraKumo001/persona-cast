@@ -26,6 +26,26 @@ export const getSessionList = createServerFn({ method: "GET" })
     }
   });
 
+/** ペルソナ別ページ。プロフィールと、そのペルソナが参加した対談の一覧。無ければ null (アーカイブ済みも見せる) */
+export const getPersonaPageFn = createServerFn({ method: "GET" })
+  .validator((input: { id: string; page?: number }) => input)
+  .handler(async ({ data: { id, page } }) => {
+    const { listSessions } = await import("../worker/services/session-queries");
+    const { PERSONA_COLUMNS, toPersona } = await import("../worker/services/persona-store");
+    const { cacheFor } = await import("../worker/cache");
+    const db = await getDb();
+    const row = await db
+      .prepare(`SELECT ${PERSONA_COLUMNS} FROM personas WHERE id = ?`)
+      .bind(id)
+      .first<import("../worker/db-types").PersonaRow>();
+    if (!row) {
+      return null;
+    }
+    const list = await listSessions(db, { personaId: id, page });
+    cacheFor(60);
+    return { persona: toPersona(row), list };
+  });
+
 /** 対談ページの「関連する対談」。検索に失敗しても、ページ本体は表示する */
 export const getRelatedSessionsFn = createServerFn({ method: "GET" })
   .validator((id: string) => id)

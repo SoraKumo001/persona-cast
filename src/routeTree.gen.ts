@@ -16,6 +16,7 @@ import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAnalyticsRouteImport } from './routes/admin.analytics'
 import { Route as AdminPersonasRouteImport } from './routes/admin.personas'
 import { Route as AdminSessionsRouteImport } from './routes/admin.sessions'
+import { Route as PersonaIdRouteImport } from './routes/persona.$id'
 import { Route as SIdRouteImport } from './routes/s.$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -53,6 +54,11 @@ const AdminSessionsRoute = AdminSessionsRouteImport.update({
   path: '/sessions',
   getParentRoute: () => AdminRoute,
 } as any)
+const PersonaIdRoute = PersonaIdRouteImport.update({
+  id: '/persona/$id',
+  path: '/persona/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SIdRoute = SIdRouteImport.update({
   id: '/s/$id',
   path: '/s/$id',
@@ -66,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/admin/sessions': typeof AdminSessionsRoute
+  '/persona/$id': typeof PersonaIdRoute
   '/s/$id': typeof SIdRoute
   '/admin/': typeof AdminIndexRoute
 }
@@ -75,6 +82,7 @@ export interface FileRoutesByTo {
   '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/admin/sessions': typeof AdminSessionsRoute
+  '/persona/$id': typeof PersonaIdRoute
   '/s/$id': typeof SIdRoute
   '/admin': typeof AdminIndexRoute
 }
@@ -86,6 +94,7 @@ export interface FileRoutesById {
   '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/admin/sessions': typeof AdminSessionsRoute
+  '/persona/$id': typeof PersonaIdRoute
   '/s/$id': typeof SIdRoute
   '/admin/': typeof AdminIndexRoute
 }
@@ -98,6 +107,7 @@ export interface FileRouteTypes {
     | '/admin/analytics'
     | '/admin/personas'
     | '/admin/sessions'
+    | '/persona/$id'
     | '/s/$id'
     | '/admin/'
   fileRoutesByTo: FileRoutesByTo
@@ -107,6 +117,7 @@ export interface FileRouteTypes {
     | '/admin/analytics'
     | '/admin/personas'
     | '/admin/sessions'
+    | '/persona/$id'
     | '/s/$id'
     | '/admin'
   id:
@@ -117,6 +128,7 @@ export interface FileRouteTypes {
     | '/admin/analytics'
     | '/admin/personas'
     | '/admin/sessions'
+    | '/persona/$id'
     | '/s/$id'
     | '/admin/'
   fileRoutesById: FileRoutesById
@@ -125,6 +137,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   MemoriesRoute: typeof MemoriesRoute
+  PersonaIdRoute: typeof PersonaIdRoute
   SIdRoute: typeof SIdRoute
 }
 
@@ -179,6 +192,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSessionsRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/persona/$id': {
+      id: '/persona/$id'
+      path: '/persona/$id'
+      fullPath: '/persona/$id'
+      preLoaderRoute: typeof PersonaIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/s/$id': {
       id: '/s/$id'
       path: '/s/$id'
@@ -209,6 +229,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   MemoriesRoute: MemoriesRoute,
+  PersonaIdRoute: PersonaIdRoute,
   SIdRoute: SIdRoute,
 }
 export const routeTree = rootRouteImport

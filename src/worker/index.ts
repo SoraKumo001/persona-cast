@@ -9,7 +9,14 @@ import adminSettingsRouter from "./routes/admin-settings";
 import memoriesRouter from "./routes/memories";
 import personasRouter from "./routes/personas";
 import sessionsRouter from "./routes/sessions";
-import { buildRobots, buildRss, buildSitemap, listRssSessions, listSitemapSessions } from "./services/feed";
+import {
+  buildRobots,
+  buildRss,
+  buildSitemap,
+  listRssSessions,
+  listSitemapPersonaIds,
+  listSitemapSessions,
+} from "./services/feed";
 import { getSiteOgpImage } from "./services/ogp-image";
 import type { Env } from "./types";
 
@@ -47,8 +54,8 @@ const XML_HEADERS = { "Content-Type": "application/xml; charset=utf-8" };
 app.get("/sitemap.xml", async (c) => {
   await ensureDatabaseTables(c.env.DB);
   cacheFor(900);
-  const sessions = await listSitemapSessions(c.env.DB);
-  return new Response(buildSitemap(new URL(c.req.url).origin, sessions), { headers: XML_HEADERS });
+  const [sessions, personaIds] = await Promise.all([listSitemapSessions(c.env.DB), listSitemapPersonaIds(c.env.DB)]);
+  return new Response(buildSitemap(new URL(c.req.url).origin, sessions, personaIds), { headers: XML_HEADERS });
 });
 
 app.get("/rss.xml", async (c) => {

@@ -48,10 +48,19 @@ export const listRssSessions = (db: D1Database) => listFeedSessions(db, FEED_LIM
 
 const sessionUrl = (origin: string, id: string) => `${origin}/s/${encodeURIComponent(id)}`;
 
-export function buildSitemap(origin: string, sessions: FeedSession[]): string {
+/** sitemap に載せるペルソナ (アーカイブ済みは除く) */
+export async function listSitemapPersonaIds(db: D1Database): Promise<string[]> {
+  const { results } = await db
+    .prepare("SELECT id FROM personas WHERE archived_at IS NULL ORDER BY created_at ASC")
+    .all<{ id: string }>();
+  return results.map((r) => r.id);
+}
+
+export function buildSitemap(origin: string, sessions: FeedSession[], personaIds: string[] = []): string {
   const latest = sessions[0]?.createdAt;
   const urls = [
     `<url><loc>${escapeXml(`${origin}/`)}</loc>${latest ? `<lastmod>${escapeXml(latest)}</lastmod>` : ""}</url>`,
+    ...personaIds.map((id) => `<url><loc>${escapeXml(`${origin}/persona/${encodeURIComponent(id)}`)}</loc></url>`),
     ...sessions.map(
       (s) => `<url><loc>${escapeXml(sessionUrl(origin, s.id))}</loc><lastmod>${escapeXml(s.createdAt)}</lastmod></url>`
     ),

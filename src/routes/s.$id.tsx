@@ -307,7 +307,9 @@ function SessionView({
         <ul aria-label="参加者" className="flex items-center -space-x-1">
           {participants.map((p) => (
             <li key={p.id}>
-              <PersonaAvatar {...p} active={speakerId === p.id} size={36} />
+              <Link aria-label={`${p.name}のページ`} params={{ id: p.id }} to="/persona/$id">
+                <PersonaAvatar {...p} active={speakerId === p.id} size={36} />
+              </Link>
             </li>
           ))}
         </ul>

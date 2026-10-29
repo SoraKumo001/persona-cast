@@ -61,15 +61,25 @@ export function searchCondition(q: string | undefined): { binds: string[]; sql: 
 /** 対談の一覧。genre・キーワード(q)で絞り込み、ジャンル別の件数と、ページ送りの情報も返す */
 export async function listSessions(
   db: D1Database,
-  options: { genre?: string; page?: number; pageSize?: number; q?: string } = {}
+  options: { genre?: string; page?: number; pageSize?: number; personaId?: string; q?: string } = {}
 ) {
   const pageSize = Math.min(Math.max(options.pageSize ?? PAGE_SIZE, 1), 100);
   const genre = options.genre && isGenre(options.genre) ? options.genre : undefined;
   const search = searchCondition(options.q);
 
-  // ジャンルの件数は、キーワードで絞った中での件数にする
-  const baseSql = search ? `${HAS_MESSAGES} AND ${search.sql}` : HAS_MESSAGES;
-  const baseBinds = search?.binds ?? [];
+  // ジャンルの件数は、キーワード・ペルソナで絞った中での件数にする
+  const conditions = [HAS_MESSAGES];
+  const baseBinds: string[] = [];
+  if (search) {
+    conditions.push(search.sql);
+    baseBinds.push(...search.binds);
+  }
+  if (options.personaId) {
+    // persona_ids は JSON の配列 (["a","b"]) なので、引用符つきで一致させる
+    conditions.push("persona_ids LIKE ? ESCAPE '\\'");
+    baseBinds.push(`%"${escapeLike(options.personaId)}"%`);
+  }
+  const baseSql = conditions.join(" AND ");
   const where = genre ? `WHERE ${baseSql} AND genre = ?` : `WHERE ${baseSql}`;
   const filterBinds = genre ? [...baseBinds, genre] : baseBinds;
 
