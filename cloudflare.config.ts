@@ -33,6 +33,11 @@ export default defineConfig({
       CF_ACCOUNT_ID: bindings.secret(),
       CF_API_TOKEN: bindings.secret(), // 権限は Account Analytics の読み取りだけ
       WEB_ANALYTICS_TOKEN: bindings.text(""), // Web Analytics のサイトトークン (空ならビーコンを出さない)
+      // 費用の試算に使う LLM の単価 (100万トークンあたり)。入力と出力の両方が入ったときだけ、管理画面に金額を出す
+      LLM_PRICE_INPUT: bindings.text(""),
+      LLM_PRICE_OUTPUT: bindings.text(""),
+      LLM_PRICE_CACHED: bindings.text(""), // 空なら入力と同じ単価
+      LLM_PRICE_CURRENCY: bindings.text("USD"),
     },
   },
 });

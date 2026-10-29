@@ -66,7 +66,7 @@ export function buildQueries(range: RangeKey, dataset: string = DATASET): Record
     // 生成のストリーム (長時間つながる) は応答時間の対象外にする
     latency: `SELECT quantileWeighted(0.5)(double2, _sample_interval) AS p50, quantileWeighted(0.95)(double2, _sample_interval) AS p95 ${from} WHERE blob1 IN ('pv', 'api') AND blob2 != '/api/sessions/:id/stream' AND ${since}`,
     events: `SELECT blob3 AS name, ${sampled} AS count ${from} WHERE blob1 = 'event' AND blob3 != 'llm_usage' AND ${since} GROUP BY name ORDER BY count DESC`,
-    llm: `SELECT SUM(double3 * _sample_interval) AS input, SUM(double4 * _sample_interval) AS cached, ${sampled} AS calls ${from} WHERE blob1 = 'event' AND blob3 = 'llm_usage' AND ${since}`,
+    llm: `SELECT SUM(double3 * _sample_interval) AS input, SUM(double4 * _sample_interval) AS cached, SUM(double5 * _sample_interval) AS output, ${sampled} AS calls ${from} WHERE blob1 = 'event' AND blob3 = 'llm_usage' AND ${since}`,
     limited: `SELECT blob2 AS route, ${sampled} AS count ${from} WHERE blob1 IN ('pv', 'api') AND double1 = 429 AND ${since} GROUP BY route ORDER BY count DESC`,
   };
 }
@@ -87,7 +87,17 @@ export interface AnalyticsReport {
   events: { name: string; count: number }[];
   latency: { p50: number; p95: number } | null;
   limited: { route: string; count: number }[];
-  llm: { calls: number; inputTokens: number; cachedTokens: number; cacheRate: number | null };
+  llm: {
+    cacheRate: number | null;
+    cachedTokens: number;
+    calls: number;
+    /** 期間内に新しく作られた対談の数 */
+    dialogues: number;
+    inputTokens: number;
+    outputTokens: number;
+    /** 対談1件あたりの入出力トークン合計 (対談がなければ null) */
+    tokensPerDialogue: number | null;
+  };
   range: RangeKey;
   referrers: { host: string; count: number }[];
   series: { t: string; pageviews: number; visitors: number }[];
@@ -111,6 +121,8 @@ export function buildReport(range: RangeKey, rows: Partial<Record<QueryName, Row
   const llm = first("llm");
   const input = num(llm.input);
   const cached = num(llm.cached);
+  const output = num(llm.output);
+  const dialogues = num(list("events").find((r) => r.name === "dialogue_created")?.count);
   const latency = first("latency");
 
   return {
@@ -143,9 +155,63 @@ export function buildReport(range: RangeKey, rows: Partial<Record<QueryName, Row
       calls: num(llm.calls),
       inputTokens: input,
       cachedTokens: cached,
+      outputTokens: output,
       cacheRate: input > 0 ? cached / input : null,
+      dialogues,
+      tokensPerDialogue: dialogues > 0 ? Math.round((input + output) / dialogues) : null,
     },
     limited: list("limited").map((r) => ({ route: String(r.route), count: num(r.count) })),
+  };
+}
+
+/** LLM の単価。100万トークンあたり。キャッシュ済みの入力は、未設定なら通常の入力と同じ単価とみなす */
+export interface LlmPrices {
+  cached: number;
+  currency: string;
+  input: number;
+  output: number;
+}
+
+/** 単価が (入力・出力とも) 正しく設定されていなければ null。金額は推測せず、設定されたときだけ出す */
+export function parsePrices(env: Env): LlmPrices | null {
+  const price = (v: string | undefined) => {
+    const n = Number.parseFloat(v ?? "");
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+  const input = price(env.LLM_PRICE_INPUT);
+  const output = price(env.LLM_PRICE_OUTPUT);
+  if (input === null || output === null || (input === 0 && output === 0)) {
+    return null;
+  }
+  return {
+    input,
+    output,
+    cached: price(env.LLM_PRICE_CACHED) ?? input,
+    currency: env.LLM_PRICE_CURRENCY?.trim() || "USD",
+  };
+}
+
+export interface CostEstimate {
+  /** 1日の対談数の上限まで作られたときの、1日あたりの費用 */
+  atDailyLimit: number | null;
+  currency: string;
+  perDialogue: number | null;
+  total: number;
+}
+
+export function estimateCost(
+  llm: Pick<AnalyticsReport["llm"], "cachedTokens" | "dialogues" | "inputTokens" | "outputTokens">,
+  prices: LlmPrices,
+  dailyLimit: number
+): CostEstimate {
+  const uncached = Math.max(llm.inputTokens - llm.cachedTokens, 0);
+  const total = (uncached * prices.input + llm.cachedTokens * prices.cached + llm.outputTokens * prices.output) / 1e6;
+  const perDialogue = llm.dialogues > 0 ? total / llm.dialogues : null;
+  return {
+    total,
+    perDialogue,
+    atDailyLimit: perDialogue === null ? null : perDialogue * dailyLimit,
+    currency: prices.currency,
   };
 }
 

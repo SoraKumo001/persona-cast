@@ -1,5 +1,54 @@
 import { describe, expect, test } from "bun:test";
-import { buildQueries, buildReport, isRangeKey, num, RANGES } from "./analytics-query";
+import type { Env } from "../types";
+import { buildQueries, buildReport, estimateCost, isRangeKey, num, parsePrices, RANGES } from "./analytics-query";
+
+const envWith = (vars: Partial<Env>) => vars as Env;
+
+describe("parsePrices", () => {
+  test("入力と出力の単価がそろったときだけ返す", () => {
+    expect(parsePrices(envWith({}))).toBeNull();
+    expect(parsePrices(envWith({ LLM_PRICE_INPUT: "1" }))).toBeNull();
+    expect(parsePrices(envWith({ LLM_PRICE_INPUT: "abc", LLM_PRICE_OUTPUT: "2" }))).toBeNull();
+    expect(parsePrices(envWith({ LLM_PRICE_INPUT: "-1", LLM_PRICE_OUTPUT: "2" }))).toBeNull();
+    expect(parsePrices(envWith({ LLM_PRICE_INPUT: "0", LLM_PRICE_OUTPUT: "0" }))).toBeNull();
+  });
+
+  test("キャッシュ単価の既定は入力と同じ、通貨の既定は USD", () => {
+    expect(parsePrices(envWith({ LLM_PRICE_INPUT: "1.5", LLM_PRICE_OUTPUT: "6" }))).toEqual({
+      input: 1.5,
+      output: 6,
+      cached: 1.5,
+      currency: "USD",
+    });
+    expect(
+      parsePrices(
+        envWith({ LLM_PRICE_INPUT: "1", LLM_PRICE_OUTPUT: "2", LLM_PRICE_CACHED: "0.1", LLM_PRICE_CURRENCY: " JPY " })
+      )
+    ).toEqual({ input: 1, output: 2, cached: 0.1, currency: "JPY" });
+  });
+});
+
+describe("estimateCost", () => {
+  const prices = { input: 1, cached: 0.1, output: 2, currency: "USD" };
+
+  test("キャッシュ済みの入力は別の単価で、対談1件あたりと上限までの見込みを出す", () => {
+    const cost = estimateCost(
+      { inputTokens: 1_000_000, cachedTokens: 750_000, outputTokens: 500_000, dialogues: 4 },
+      prices,
+      100
+    );
+    expect(cost.total).toBeCloseTo(1.325);
+    expect(cost.perDialogue).toBeCloseTo(0.331_25);
+    expect(cost.atDailyLimit).toBeCloseTo(33.125);
+    expect(cost.currency).toBe("USD");
+  });
+
+  test("対談がなければ、1件あたりと見込みは null", () => {
+    const cost = estimateCost({ inputTokens: 1000, cachedTokens: 0, outputTokens: 1000, dialogues: 0 }, prices, 100);
+    expect(cost.perDialogue).toBeNull();
+    expect(cost.atDailyLimit).toBeNull();
+  });
+});
 
 describe("isRangeKey", () => {
   test("許可リストのキーだけ通す (SQLに埋め込む値を外から受けない)", () => {
@@ -70,7 +119,7 @@ describe("buildReport", () => {
         { cache: "NONE", count: "40" },
       ],
       latency: [{ p50: "12.4", p95: "300.6" }],
-      llm: [{ input: "1000", cached: "750", calls: "10" }],
+      llm: [{ input: "1000", cached: "750", output: "500", calls: "10" }],
       events: [{ name: "dialogue_created", count: "3" }],
     });
     expect(r.range).toBe("7d");
@@ -83,7 +132,15 @@ describe("buildReport", () => {
     // HIT率は、キャッシュの対象 (HIT+MISS) のうちの割合。キャッシュ対象外 (NONE) は含めない
     expect(r.cache.hitRate).toBe(0.75);
     expect(r.latency).toEqual({ p50: 12, p95: 301 });
-    expect(r.llm).toEqual({ calls: 10, inputTokens: 1000, cachedTokens: 750, cacheRate: 0.75 });
+    expect(r.llm).toEqual({
+      calls: 10,
+      inputTokens: 1000,
+      cachedTokens: 750,
+      outputTokens: 500,
+      cacheRate: 0.75,
+      dialogues: 3,
+      tokensPerDialogue: 500,
+    });
     expect(r.events).toEqual([{ name: "dialogue_created", count: 3 }]);
   });
 });

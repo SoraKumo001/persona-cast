@@ -2,11 +2,14 @@ import { Hono } from "hono";
 import { requireAccess } from "../middleware/access";
 import {
   type AnalyticsReport,
+  estimateCost,
   fetchReport,
   isAnalyticsConfigured,
   isRangeKey,
+  parsePrices,
   type RangeKey,
 } from "../services/analytics-query";
+import { getDailyLimit } from "../services/settings";
 import type { Env } from "../types";
 
 const app = new Hono<{ Bindings: Env; Variables: { adminEmail: string } }>();
@@ -51,8 +54,13 @@ app.get("/", async (c) => {
     }
   }
 
+  // 単価が設定されているときだけ、費用の試算を付ける (1日の上限まで作られた場合の見込みも)
+  const prices = parsePrices(c.env);
+  const cost = prices && c.env.DB ? estimateCost(report.llm, prices, await getDailyLimit(c.env.DB)) : null;
+
   return c.json({
     configured: true,
+    cost,
     report: {
       ...report,
       topDialogues: report.topDialogues.map((d) => ({

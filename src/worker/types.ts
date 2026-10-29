@@ -31,6 +31,10 @@ export interface Env {
   CF_API_TOKEN?: string; // 権限は「アカウント > Account Analytics > 読み取り」だけにする
   DB: D1Database;
   EMBEDDING_MODEL?: string;
+  LLM_PRICE_CACHED?: string; // 費用の試算に使う単価 (100万トークンあたり)。キャッシュ済みの入力。空なら入力と同じ
+  LLM_PRICE_CURRENCY?: string; // 単価の通貨の表示 (既定 USD)
+  LLM_PRICE_INPUT?: string; // 入力の単価。入力と出力の両方が設定されたときだけ、費用を表示する
+  LLM_PRICE_OUTPUT?: string; // 出力の単価
   OPENCODE_API_KEY?: string;
   OPENCODE_BASE_URL?: string;
   OPENCODE_DEFAULT_MODEL?: string;

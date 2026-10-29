@@ -162,8 +162,8 @@ describe("trackRequest / trackEvent", () => {
   test("業務イベントは種別eventで、名前と数値を記録する", async () => {
     const { points, env } = setup();
     const { trackEvent } = await import("./analytics-track");
-    trackEvent(env, "llm_usage", { value: 1000, extra: 750 });
+    trackEvent(env, "llm_usage", { value: 1000, extra: 750, output: 300 });
     expect(points[0].blobs.slice(0, 3)).toEqual(["event", "event", "llm_usage"]);
-    expect(points[0].doubles).toEqual([0, 0, 1000, 750]);
+    expect(points[0].doubles).toEqual([0, 0, 1000, 750, 300]);
   });
 });

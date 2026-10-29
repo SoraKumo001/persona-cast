@@ -21,7 +21,15 @@ interface Report {
   events: (Count & { name: string })[];
   latency: { p50: number; p95: number } | null;
   limited: (Count & { route: string })[];
-  llm: { calls: number; inputTokens: number; cachedTokens: number; cacheRate: number | null };
+  llm: {
+    cacheRate: number | null;
+    cachedTokens: number;
+    calls: number;
+    dialogues: number;
+    inputTokens: number;
+    outputTokens: number;
+    tokensPerDialogue: number | null;
+  };
   range: RangeKey;
   referrers: (Count & { host: string })[];
   series: { t: string; pageviews: number; visitors: number }[];
@@ -30,9 +38,29 @@ interface Report {
   topPages: (Count & { route: string })[];
   totals: { pageviews: number; visitors: number; botPageviews: number };
 }
+interface Cost {
+  atDailyLimit: number | null;
+  currency: string;
+  perDialogue: number | null;
+  total: number;
+}
 type AnalyticsResponse =
   | { configured: false; hasDataset: boolean }
-  | { configured: true; report: Report; errors: string[] };
+  | { configured: true; report: Report; errors: string[]; cost: Cost | null };
+
+/** 金額は小さいので、有効数字を保って表示する (例: 0.0123 USD) */
+function money(value: number | null, currency: string): string {
+  if (value === null) {
+    return "—";
+  }
+  let digits = 4;
+  if (value >= 100) {
+    digits = 0;
+  } else if (value >= 1) {
+    digits = 2;
+  }
+  return `${value.toLocaleString("ja-JP", { maximumFractionDigits: digits })} ${currency}`;
+}
 
 const EVENT_LABELS: Record<string, string> = {
   dialogue_created: "新しく作られた対談",
@@ -130,7 +158,7 @@ function AnalyticsBody({ data, error }: { data: AnalyticsResponse | null; error:
   if (!data.configured) {
     return <SetupNotice hasDataset={data.hasDataset} />;
   }
-  return <ReportView errors={data.errors} report={data.report} />;
+  return <ReportView cost={data.cost} errors={data.errors} report={data.report} />;
 }
 
 function SetupNotice({ hasDataset }: { hasDataset: boolean }) {
@@ -160,7 +188,7 @@ function SetupNotice({ hasDataset }: { hasDataset: boolean }) {
   );
 }
 
-function ReportView({ report, errors }: { report: Report; errors: string[] }) {
+function ReportView({ report, errors, cost }: { report: Report; errors: string[]; cost: Cost | null }) {
   const created = report.events.find((e) => e.name === "dialogue_created")?.count ?? 0;
   const limited = report.limited.reduce((n, l) => n + l.count, 0);
   const deviceTotal = report.devices.reduce((n, d) => n + d.count, 0);
@@ -256,6 +284,31 @@ function ReportView({ report, errors }: { report: Report; errors: string[] }) {
             <Metric label="LLM の呼び出し" value={nf.format(report.llm.calls)} />
             <Metric label="LLM の入力キャッシュ率" value={pct(report.llm.cacheRate)} />
           </dl>
+        </Panel>
+        <Panel title="LLM の使用量と費用の目安">
+          <dl className="grid grid-cols-2 gap-3 text-sm">
+            <Metric label="入力トークン" value={nf.format(Math.round(report.llm.inputTokens))} />
+            <Metric label="出力トークン" value={nf.format(Math.round(report.llm.outputTokens))} />
+            <Metric label="新しい対談" value={`${nf.format(report.llm.dialogues)} 件`} />
+            <Metric
+              label="対談1件あたり"
+              value={
+                report.llm.tokensPerDialogue === null ? "—" : `${nf.format(report.llm.tokensPerDialogue)} トークン`
+              }
+            />
+            {cost ? (
+              <>
+                <Metric label="期間の費用" value={money(cost.total, cost.currency)} />
+                <Metric label="対談1件あたり" value={money(cost.perDialogue, cost.currency)} />
+                <Metric label="1日の上限まで作られた場合 (1日)" value={money(cost.atDailyLimit, cost.currency)} />
+              </>
+            ) : null}
+          </dl>
+          <p className="mt-3 text-xs text-zinc-500">
+            {cost
+              ? "費用は、記録したトークン数に設定した単価を掛けた試算です。請求額とは一致しないことがあります。"
+              : "単価を設定すると、費用の試算も表示します (LLM_PRICE_INPUT / LLM_PRICE_OUTPUT。100万トークンあたり)。"}
+          </p>
         </Panel>
         <Panel title="制限・上限で断ったリクエスト">
           <Ranking

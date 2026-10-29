@@ -11,7 +11,7 @@
  *   blob6  = 参照元ホスト (自サイトからの遷移は空)
  *   blob7  = 端末: "pc" / "mobile" / "tablet" / "bot"
  *   blob8  = 訪問者の識別 (IP+UA+日付のソルト付きハッシュ。日をまたぐと別人扱い。生のIPは保存しない)
- *   double1 = HTTPステータス、double2 = 応答時間(ms)、double3/4 = イベントの数値 (LLMの入力/キャッシュ済みトークン)
+ *   double1 = HTTPステータス、double2 = 応答時間(ms)、double3/4/5 = イベントの数値 (LLMの入力/キャッシュ済み/出力トークン)
  */
 import type { Env } from "../types";
 
@@ -166,7 +166,11 @@ export function trackRequest(
 }
 
 /** 業務イベント (対談の作成・18禁のブロック・LLM使用量など) を記録する */
-export function trackEvent(env: Env, name: string, values: { value?: number; extra?: number } = {}): void {
+export function trackEvent(
+  env: Env,
+  name: string,
+  values: { value?: number; extra?: number; output?: number } = {}
+): void {
   if (!env.ANALYTICS) {
     return;
   }
@@ -174,7 +178,7 @@ export function trackEvent(env: Env, name: string, values: { value?: number; ext
     env.ANALYTICS.writeDataPoint({
       indexes: ["event"],
       blobs: ["event", "event", name, "NONE", "", "", "", ""],
-      doubles: [0, 0, values.value ?? 0, values.extra ?? 0],
+      doubles: [0, 0, values.value ?? 0, values.extra ?? 0, values.output ?? 0],
     });
   } catch (err) {
     console.warn("analytics event failed:", err);

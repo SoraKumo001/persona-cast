@@ -42,7 +42,7 @@ function splitSystem(messages: ChatMessage[]) {
 function logUsage(
   env: Env,
   label: string,
-  usage: { inputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } } | undefined
+  usage: { inputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number }; outputTokens?: number } | undefined
 ) {
   if (!usage?.inputTokens) {
     return;
@@ -51,7 +51,7 @@ function logUsage(
   console.log(
     `[llm] ${label} input=${usage.inputTokens} cached=${cached} (${Math.round((cached / usage.inputTokens) * 100)}%)`
   );
-  trackEvent(env, "llm_usage", { value: usage.inputTokens, extra: cached });
+  trackEvent(env, "llm_usage", { value: usage.inputTokens, extra: cached, output: usage.outputTokens ?? 0 });
 }
 
 /**
