@@ -152,3 +152,14 @@ URLは正規化 (`https` 統一・`www.`/fragment/トラッキングクエリ除
 - トップページ(`/`)は対談の一覧です。ジャンルで絞り込めます (`/?genre=...`)。サムネイルは対談ごとのOGP画像で、対談完了時に先に生成します。
 - `/memories` は過去の対談記憶の検索です。
 - マイグレーション `0003_genre.sql` を `bun run d1:migrate` で適用してください。
+
+## キャッシュ (Cache API)
+
+Worker の動的な応答は Cache-Control を付けてもエッジに自動ではキャッシュされないため、`src/worker/cache.ts` が `caches.default` に入れます (`src/server.ts` の入口で包んでいます)。
+
+- ハンドラが `cacheFor(秒数)` で申告した応答だけをキャッシュします。申告がなければキャッシュしません。
+- 対象: 発言が保存された対談 (`/s/:id` と `/api/sessions/:id`、600秒)、トップと対談一覧・ペルソナ一覧 (60秒)、OGP画像 (3600秒)、アバター (1年・immutable)。
+- 対象外: 生成前・生成中の対談、SSE、POST、認証ヘッダ付きのリクエスト。`/admin/*` と `/api/admin/*` には `private, no-store` を付けます。
+- 応答には `X-Cache: HIT|MISS` が付きます。ペルソナ編集の反映は最大10分遅れることがあります。
+- Cache API は独自ドメイン (ゾーン) でのみ効きます。`*.workers.dev` では何もしません。
+

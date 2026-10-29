@@ -13,8 +13,11 @@ export const getSessionList = createServerFn({ method: "GET" })
   .validator((genre: string | undefined) => genre)
   .handler(async ({ data: genre }) => {
     const { listSessions } = await import("../worker/services/session-queries");
+    const { cacheFor } = await import("../worker/cache");
     try {
-      return await listSessions(await getDb(), { genre });
+      const result = await listSessions(await getDb(), { genre });
+      cacheFor(60, { maxAge: 30 });
+      return result;
     } catch (err) {
       console.error("Failed to list sessions:", err);
       return { sessions: [], genres: [] };
@@ -25,5 +28,9 @@ export const getSessionDetailFn = createServerFn({ method: "GET" })
   .validator((id: string) => id)
   .handler(async ({ data: id }) => {
     const { getSessionDetail } = await import("../worker/services/session-queries");
-    return getSessionDetail(await getDb(), id);
+    const { cacheFor } = await import("../worker/cache");
+    const detail = await getSessionDetail(await getDb(), id);
+    // 発言が保存された対談は変わらないのでSSRの応答ごとキャッシュする。生成前・生成中・未存在は載せない
+    if (detail && detail.messages.length > 0) cacheFor(600, { maxAge: 60 });
+    return detail;
   });

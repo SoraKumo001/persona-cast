@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { Env } from "../types";
+import { cacheFor } from "../cache";
 import { scrapeUrl, ScrapeError } from "../services/scraper";
 import { normalizeUrl } from "../services/url-normalize";
 import { analyzeArticle, defaultTurns, PersonaCandidate } from "../services/analyze";
@@ -24,6 +25,8 @@ async function findSessionByNormalizedUrl(db: D1Database, normalizedUrl: string)
 app.get("/", async (c) => {
   if (c.env.DB) await ensureDatabaseTables(c.env.DB);
   try {
+    // 新しい対談が増えるので短く。管理操作で壊れた表示も1分で戻る
+    cacheFor(60, { maxAge: 30 });
     return c.json(
       await listSessions(c.env.DB, { genre: c.req.query("genre"), limit: parseInt(c.req.query("limit") || "48", 10) || 48 })
     );
@@ -37,6 +40,8 @@ app.get("/", async (c) => {
 app.get("/:id", async (c) => {
   const detail = await getSessionDetail(c.env.DB, c.req.param("id"));
   if (!detail) return c.json({ error: "セッションが見つかりません" }, 404);
+  // 発言が保存された対談は変わらない。生成中・生成前は載せない
+  if (detail.messages.length > 0) cacheFor(600, { maxAge: 60 });
   return c.json(detail);
 });
 
@@ -45,9 +50,8 @@ app.get("/:id/ogp.png", async (c) => {
   try {
     const png = await getSessionOgpImage(c.env, c.req.param("id"));
     if (!png) return c.json({ error: "セッションが見つかりません" }, 404);
-    return new Response(png as BodyInit, {
-      headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=3600" },
-    });
+    cacheFor(3600, { maxAge: 3600 });
+    return new Response(png as BodyInit, { headers: { "Content-Type": "image/png" } });
   } catch (err: any) {
     console.error("OGP image generation failed:", err);
     return c.json({ error: "OGP画像の生成に失敗しました" }, 500);

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cacheFor } from "../cache";
 import { Env } from "../types";
 import { DEFAULT_PERSONAS, ensureDatabaseTables } from "../presets";
 import { PERSONA_COLUMNS, toPersona } from "../services/persona-store";
@@ -15,6 +16,7 @@ app.get("/", async (c) => {
       ).all();
 
       if (results && results.length > 0) {
+        cacheFor(60, { maxAge: 30 });
         return c.json({ personas: results.map(toPersona) });
       }
     }
@@ -43,10 +45,11 @@ app.get("/:id/avatar", async (c) => {
   if (c.req.header("If-None-Match") === etag) {
     return new Response(null, { status: 304, headers: { ETag: etag } });
   }
+  // URL の ?v= に内容のハッシュが入るので、長期キャッシュしてよい (エッジにも置く)
+  cacheFor(31536000, { maxAge: 31536000, immutable: true });
   return new Response(object.body, {
     headers: {
       "Content-Type": object.httpMetadata?.contentType || "application/octet-stream",
-      "Cache-Control": "public, max-age=31536000, immutable",
       ETag: etag,
       "X-Content-Type-Options": "nosniff",
     },
