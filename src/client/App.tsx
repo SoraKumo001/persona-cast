@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Persona } from "../worker/types";
+import { DEFAULT_PERSONAS } from "../worker/presets";
 import { UrlInputForm } from "./components/UrlInputForm";
 import { DialogueStage, DisplayMessage, PastMemoryInfo } from "./components/DialogueStage";
 import { MemoryExplorer } from "./components/MemoryExplorer";
@@ -8,7 +9,7 @@ import { Radio, BrainCircuit, Users, Sparkles, Activity } from "lucide-react";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<"stage" | "memories" | "personas">("stage");
-  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [personas, setPersonas] = useState<Persona[]>(DEFAULT_PERSONAS);
   const [healthStatus, setHealthStatus] = useState<any>(null);
 
   // 対談ステージの状態

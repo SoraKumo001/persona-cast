@@ -4,21 +4,27 @@ import { Env } from "../types";
 import { scrapeUrl } from "../services/scraper";
 import { searchSimilarMemories } from "../services/memory";
 import { orchestrateDialogue } from "../services/dialogue";
+import { ensureDatabaseTables } from "../presets";
 
 const app = new Hono<{ Bindings: Env }>();
 
 // セッション一覧取得
 app.get("/", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    "SELECT id, source_url as sourceUrl, article_title as articleTitle, article_summary as articleSummary, persona_ids as personaIds, created_at as createdAt FROM sessions ORDER BY created_at DESC LIMIT 30"
-  ).all();
+  if (c.env.DB) await ensureDatabaseTables(c.env.DB);
+  try {
+    const { results } = await c.env.DB.prepare(
+      "SELECT id, source_url as sourceUrl, article_title as articleTitle, article_summary as articleSummary, persona_ids as personaIds, created_at as createdAt FROM sessions ORDER BY created_at DESC LIMIT 30"
+    ).all();
 
-  const formatted = results.map((r: any) => ({
-    ...r,
-    personaIds: JSON.parse(r.personaIds || "[]"),
-  }));
+    const formatted = results.map((r: any) => ({
+      ...r,
+      personaIds: JSON.parse(r.personaIds || "[]"),
+    }));
 
-  return c.json({ sessions: formatted });
+    return c.json({ sessions: formatted });
+  } catch (err) {
+    return c.json({ sessions: [] });
+  }
 });
 
 // セッション詳細と発言ログの取得
@@ -57,6 +63,7 @@ app.get("/:id", async (c) => {
 
 // 新規対談セッション作成 (URL抽出・記憶照会)
 app.post("/", async (c) => {
+  if (c.env.DB) await ensureDatabaseTables(c.env.DB);
   const body = await c.req.json<{
     url: string;
     personaIds: string[];

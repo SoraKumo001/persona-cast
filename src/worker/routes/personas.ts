@@ -1,14 +1,28 @@
 import { Hono } from "hono";
 import { Env, Persona } from "../types";
+import { DEFAULT_PERSONAS, ensureDatabaseTables } from "../presets";
 
 const app = new Hono<{ Bindings: Env }>();
 
 // ペルソナ一覧取得
 app.get("/", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    "SELECT id, name, role, avatar, theme_color as themeColor, personality, speaking_style as speakingStyle, created_at as createdAt FROM personas ORDER BY created_at ASC"
-  ).all();
-  return c.json({ personas: results });
+  try {
+    if (c.env.DB) {
+      await ensureDatabaseTables(c.env.DB);
+      const { results } = await c.env.DB.prepare(
+        "SELECT id, name, role, avatar, theme_color as themeColor, personality, speaking_style as speakingStyle, created_at as createdAt FROM personas ORDER BY created_at ASC"
+      ).all();
+
+      if (results && results.length > 0) {
+        return c.json({ personas: results });
+      }
+    }
+  } catch (err) {
+    console.warn("DB query for personas failed, falling back to presets:", err);
+  }
+
+  // フォールバック: デフォルトプリセットを返却
+  return c.json({ personas: DEFAULT_PERSONAS });
 });
 
 // 新規ペルソナ作成
@@ -21,21 +35,28 @@ app.post("/", async (c) => {
   const id = body.id || `p_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date().toISOString();
 
-  await c.env.DB.prepare(
-    `INSERT INTO personas (id, name, role, avatar, theme_color, personality, speaking_style, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
-      id,
-      body.name,
-      body.role || "コメンテーター",
-      body.avatar || "🎙️",
-      body.themeColor || "#3b82f6",
-      body.personality,
-      body.speakingStyle,
-      now
-    )
-    .run();
+  if (c.env.DB) {
+    try {
+      await ensureDatabaseTables(c.env.DB);
+      await c.env.DB.prepare(
+        `INSERT INTO personas (id, name, role, avatar, theme_color, personality, speaking_style, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+        .bind(
+          id,
+          body.name,
+          body.role || "コメンテーター",
+          body.avatar || "🎙️",
+          body.themeColor || "#3b82f6",
+          body.personality,
+          body.speakingStyle,
+          now
+        )
+        .run();
+    } catch (err: any) {
+      console.error("Failed to insert persona:", err);
+    }
+  }
 
   return c.json({
     id,
@@ -52,7 +73,14 @@ app.post("/", async (c) => {
 // ペルソナ削除
 app.delete("/:id", async (c) => {
   const id = c.req.param("id");
-  await c.env.DB.prepare("DELETE FROM personas WHERE id = ?").bind(id).run();
+  if (c.env.DB) {
+    try {
+      await ensureDatabaseTables(c.env.DB);
+      await c.env.DB.prepare("DELETE FROM personas WHERE id = ?").bind(id).run();
+    } catch (err) {
+      console.warn("Failed to delete persona:", err);
+    }
+  }
   return c.json({ success: true });
 });
 

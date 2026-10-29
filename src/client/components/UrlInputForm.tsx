@@ -24,10 +24,10 @@ const PRESET_URLS = [
 ];
 
 export const UrlInputForm: React.FC<UrlInputFormProps> = ({ personas, onSubmit, isLoading }) => {
-  const [url, setUrl] = useState("");
-  const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>(
-    personas.slice(0, 2).map((p) => p.id)
-  );
+  const [url, setUrl] = useState("https://blog.cloudflare.com/workers-ai/");
+  const [selectedPersonaIds, setSelectedPersonaIds] = useState<string[]>(() => {
+    return personas.length > 0 ? personas.slice(0, 2).map((p) => p.id) : ["ken", "yuki"];
+  });
   const [totalTurns, setTotalTurns] = useState<number>(6);
   const [modelName, setModelName] = useState<string>("deepseek-v4.1-flash");
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -37,7 +37,7 @@ export const UrlInputForm: React.FC<UrlInputFormProps> = ({ personas, onSubmit, 
     if (selectedPersonaIds.length === 0 && personas.length > 0) {
       setSelectedPersonaIds(personas.slice(0, 2).map((p) => p.id));
     }
-  }, [personas]);
+  }, [personas, selectedPersonaIds.length]);
 
   const togglePersona = (id: string) => {
     if (selectedPersonaIds.includes(id)) {
