@@ -21,7 +21,7 @@ export function PersonaAvatar({ name, avatar, avatarUrl, themeColor = "#6366f1",
         width: size,
         height: size,
         background: `${themeColor}33`,
-        boxShadow: active ? `0 0 0 2px #09090b, 0 0 0 4px ${themeColor}` : `inset 0 0 0 1.5px ${themeColor}66`,
+        boxShadow: active ? `0 0 0 2px var(--color-zinc-950), 0 0 0 4px ${themeColor}` : `inset 0 0 0 1.5px ${themeColor}66`,
         fontSize: size * 0.5,
       }}
       title={name}

@@ -1,6 +1,7 @@
 import { Link, Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import React from "react";
 import { Mic } from "lucide-react";
+import { THEME_INIT_SCRIPT, ThemeToggle } from "../client/components/ThemeToggle";
 import "../client/index.css";
 
 export const Route = createRootRoute({
@@ -28,8 +29,10 @@ const NAV = [
 
 function RootComponent() {
   return (
-    <html lang="ja">
+    // data-theme はスクリプトが描画前に付与するため、サーバー出力との差を許容する
+    <html lang="ja" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         <HeadContent />
       </head>
       <body className="min-h-screen bg-zinc-950 text-zinc-100 antialiased selection:bg-indigo-500 selection:text-white">
@@ -52,6 +55,7 @@ function RootComponent() {
                   {item.label}
                 </Link>
               ))}
+              <ThemeToggle />
             </nav>
           </div>
         </header>
