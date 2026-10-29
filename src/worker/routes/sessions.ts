@@ -34,7 +34,7 @@ app.get("/", async (c) => {
   }
   try {
     // 新しい対談が増えるので短く。管理操作で壊れた表示も1分で戻る
-    cacheFor(60, { maxAge: 30 });
+    cacheFor(15);
     return c.json(
       await listSessions(c.env.DB, {
         genre: c.req.query("genre"),
@@ -56,7 +56,7 @@ app.get("/:id", async (c) => {
   }
   // 発言が保存された対談は変わらない。生成中・生成前は載せない
   if (detail.messages.length > 0) {
-    cacheFor(600, { maxAge: 60 });
+    cacheFor(600);
   }
   return c.json(detail);
 });

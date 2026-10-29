@@ -201,9 +201,12 @@ URLは正規化 (`https` 統一・`www.`/fragment/トラッキングクエリ除
 Worker の動的な応答は Cache-Control を付けてもエッジに自動ではキャッシュされないため、`src/worker/cache.ts` が `caches.default` に入れます (`src/server.ts` の入口で包んでいます)。
 
 - ハンドラが `cacheFor(秒数)` で申告した応答だけをキャッシュします。申告がなければキャッシュしません。
-- 対象: 発言が保存された対談 (`/s/:id` と `/api/sessions/:id`、600秒)、トップと対談一覧・ペルソナ一覧 (60秒)、OGP画像 (3600秒)、アバター (1年・immutable)。
+- 対象 (エッジの保持): 発言が保存された対談 (`/s/:id` と `/api/sessions/:id`、600秒)、トップと対談一覧 (15秒。新しい対談が増えるため短い)、ペルソナ一覧 (60秒)、OGP画像 (3600秒)、アバター (1年・immutable)。
 - 対象外: 生成前・生成中の対談、SSE、POST、認証ヘッダ付きのリクエスト。`/admin` 以下と `/api/admin/*` には `private, no-store` を付けます。
+- **ブラウザには、エッジとは別の `Cache-Control` を返します。** 一覧・対談・ペルソナ一覧は `no-cache` (毎回エッジに確認する。エッジのキャッシュは使える)、OGP画像は1時間、アバターは1年です。ブラウザに古い応答が残って、画面遷移で古い一覧が出る、といったことを防ぎます。
 - 応答には `X-Cache: HIT|MISS` が付きます。ペルソナ編集の反映は最大10分遅れることがあります。
+- Cloudflare のゾーン設定の **Browser Cache TTL** は「Respect Existing Headers」にしてください。時間 (例: 4時間) を指定すると、アプリが指定した値より長くブラウザに保存されます。
+- 画面遷移 (クライアント側) でも、古いデータを先に見せず、取り直してから表示します (`src/router.tsx` の `defaultStaleReloadMode: "blocking"`)。
 - Cache API は独自ドメイン (ゾーン) でのみ効きます。`*.workers.dev` では何もしません。
 
 ## 公開APIの保護

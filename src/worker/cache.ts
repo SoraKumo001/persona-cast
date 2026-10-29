@@ -9,6 +9,10 @@
  * - 複数回申告されたら最も短い期間を採用する。
  * - GET 以外、認証ヘッダ付き、管理系のパスはキャッシュしない。管理系には no-store を付ける。
  * - Cache API は独自ドメインのゾーンでのみ効く (workers.dev では何もしない)。
+ * - エッジ (s-maxage) とブラウザで、別の Cache-Control を使う。保存するコピーにはエッジ用だけを付け、
+ *   ブラウザ向けの値は X-Browser-Cache に持たせて、返すときに Cache-Control へ移す。
+ *   ブラウザは maxAge が 0 なら no-cache (毎回エッジに確認する)。これで、画面遷移で一覧などを
+ *   取り直したとき、ブラウザに残った古い応答が使われない。
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 
@@ -39,9 +43,20 @@ export function cacheFor(sMaxAge: number, options: { maxAge?: number; immutable?
     : next;
 }
 
-export function cacheControl(hint: CacheHint): string {
-  return `public, max-age=${hint.maxAge}, s-maxage=${hint.sMaxAge}${hint.immutable ? ", immutable" : ""}`;
+/** ブラウザ向け。maxAge が 0 なら、保存せず毎回確認させる (エッジのキャッシュは使える) */
+export function browserCacheControl(hint: CacheHint): string {
+  if (hint.maxAge <= 0) {
+    return "no-cache";
+  }
+  return `public, max-age=${hint.maxAge}${hint.immutable ? ", immutable" : ""}`;
 }
+
+/** エッジ (Cache API に保存するコピー) 向け */
+export function edgeCacheControl(hint: CacheHint): string {
+  return `public, s-maxage=${hint.sMaxAge}`;
+}
+
+const BROWSER_HEADER = "X-Browser-Cache";
 
 /** 管理画面・管理API。Access で守っているので、共有キャッシュに入れてはいけない */
 export function isAdminPath(pathname: string): boolean {
@@ -80,7 +95,9 @@ export async function withEdgeCache(
   const key = new Request(url.toString(), { method: "GET" });
   const hit = await cache.match(key);
   if (hit) {
-    return withHeaders(hit, { "X-Cache": "HIT" });
+    const out = withHeaders(hit, { "Cache-Control": hit.headers.get(BROWSER_HEADER) ?? "no-cache", "X-Cache": "HIT" });
+    out.headers.delete(BROWSER_HEADER);
+    return out;
   }
 
   const state: { hint?: CacheHint } = {};
@@ -89,7 +106,9 @@ export async function withEdgeCache(
     return res;
   }
 
-  const out = withHeaders(res, { "Cache-Control": cacheControl(state.hint), "X-Cache": "MISS" });
-  ctx.waitUntil(cache.put(key, out.clone()).catch((err) => console.warn("cache.put failed:", err)));
-  return out;
+  const browser = browserCacheControl(state.hint);
+  // 保存するコピーには、エッジ用の Cache-Control とブラウザ向けの値を持たせる
+  const stored = withHeaders(res.clone(), { "Cache-Control": edgeCacheControl(state.hint), [BROWSER_HEADER]: browser });
+  ctx.waitUntil(cache.put(key, stored).catch((err) => console.warn("cache.put failed:", err)));
+  return withHeaders(res, { "Cache-Control": browser, "X-Cache": "MISS" });
 }

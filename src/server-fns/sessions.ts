@@ -16,7 +16,8 @@ export const getSessionList = createServerFn({ method: "GET" })
     const { cacheFor } = await import("../worker/cache");
     try {
       const result = await listSessions(await getDb(), { genre, page });
-      cacheFor(60, { maxAge: 30 });
+      // 新しい対談が増える一覧なので、エッジも短くする
+      cacheFor(15);
       return result;
     } catch (err) {
       console.error("Failed to list sessions:", err);
@@ -32,7 +33,7 @@ export const getSessionDetailFn = createServerFn({ method: "GET" })
     const detail = await getSessionDetail(await getDb(), id);
     // 発言が保存された対談は変わらないのでSSRの応答ごとキャッシュする。生成前・生成中・未存在は載せない
     if (detail && detail.messages.length > 0) {
-      cacheFor(600, { maxAge: 60 });
+      cacheFor(600);
     }
     return detail;
   });

@@ -17,7 +17,7 @@ app.get("/", async (c) => {
       ).all<PersonaRow>();
 
       if (results && results.length > 0) {
-        cacheFor(60, { maxAge: 30 });
+        cacheFor(60);
         return c.json({ personas: results.map(toPersona) });
       }
     }

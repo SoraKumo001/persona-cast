@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { cacheControl, cacheFor, isAdminPath } from "./cache";
+import { browserCacheControl, cacheFor, edgeCacheControl, isAdminPath } from "./cache";
 
-describe("cacheControl", () => {
-  test("エッジとブラウザの期間を分けて出す", () => {
-    expect(cacheControl({ sMaxAge: 600, maxAge: 60 })).toBe("public, max-age=60, s-maxage=600");
+describe("browserCacheControl / edgeCacheControl", () => {
+  test("ブラウザは maxAge が 0 なら no-cache (毎回エッジに確認する)。エッジの期間は別に持つ", () => {
+    expect(browserCacheControl({ sMaxAge: 600, maxAge: 0 })).toBe("no-cache");
+    expect(edgeCacheControl({ sMaxAge: 600, maxAge: 0 })).toBe("public, s-maxage=600");
   });
-  test("immutable を付けられる", () => {
-    expect(cacheControl({ sMaxAge: 1, maxAge: 1, immutable: true })).toBe("public, max-age=1, s-maxage=1, immutable");
+  test("maxAge があれば、ブラウザにも保存させる。immutable も付けられる", () => {
+    expect(browserCacheControl({ sMaxAge: 3600, maxAge: 3600 })).toBe("public, max-age=3600");
+    expect(browserCacheControl({ sMaxAge: 1, maxAge: 1, immutable: true })).toBe("public, max-age=1, immutable");
   });
 });
 
