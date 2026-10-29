@@ -5,7 +5,7 @@ import { OgpCard } from "../client/components/OgpCard";
 import { PersonaAvatar } from "../client/components/PersonaAvatar";
 import { getSessionMeta } from "../server-fns/session-meta";
 import { getSessionDetailFn } from "../server-fns/sessions";
-import { ChatMessage, PastMemory, Persona, SessionSummary } from "../client/lib/api";
+import { ChatMessage, PastMemory, Persona, SessionSummary, formatDateTime } from "../client/lib/api";
 
 export const Route = createFileRoute("/s/$id")({
   validateSearch: (search: Record<string, unknown>): { turns?: number } => {
@@ -207,18 +207,25 @@ function SessionView({ id, detail }: { id: string; detail: Detail | null }) {
             </li>
           ))}
         </ul>
-        <p className="flex items-center gap-1.5 text-xs text-zinc-400" aria-live="polite">
-          {status === "streaming" && (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> 対談中…
-            </>
+        <div className="flex flex-col items-end gap-0.5 text-xs text-zinc-400">
+          {formatDateTime(session.createdAt) && (
+            <time dateTime={session.createdAt} className="text-zinc-500">
+              {formatDateTime(session.createdAt)} 生成
+            </time>
           )}
-          {status === "done" && (
-            <>
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> 対談終了
-            </>
-          )}
-        </p>
+          <p className="flex items-center gap-1.5" aria-live="polite">
+            {status === "streaming" && (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> 対談中…
+              </>
+            )}
+            {status === "done" && (
+              <>
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> 対談終了
+              </>
+            )}
+          </p>
+        </div>
       </div>
 
       {pastMemories.length > 0 && (

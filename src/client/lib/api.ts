@@ -102,3 +102,18 @@ export function formatDate(iso: string): string {
     ? ""
     : d.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
+
+/** 年つきの日時 (対談ページの生成時刻用)。サーバーとブラウザで同じ表示になるよう JST に固定する */
+export function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ""
+    : d.toLocaleString("ja-JP", {
+        timeZone: "Asia/Tokyo",
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+}
