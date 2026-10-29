@@ -4,30 +4,34 @@ import { BrainCircuit, CheckCircle2, Loader2, TriangleAlert } from "lucide-react
 import { OgpCard } from "../client/components/OgpCard";
 import { PersonaAvatar } from "../client/components/PersonaAvatar";
 import { getSessionMeta } from "../server-fns/session-meta";
-import { ChatMessage, PastMemory, Persona, SessionSummary, api } from "../client/lib/api";
+import { getSessionDetailFn } from "../server-fns/sessions";
+import { ChatMessage, PastMemory, Persona, SessionSummary } from "../client/lib/api";
 
 export const Route = createFileRoute("/s/$id")({
   validateSearch: (search: Record<string, unknown>): { turns?: number } => {
     const turns = Number(search.turns);
     return Number.isInteger(turns) && turns > 0 && turns <= 20 ? { turns } : {};
   },
-  loader: ({ params }) => getSessionMeta({ data: params.id }),
+  loader: async ({ params }) => {
+    const [meta, detail] = await Promise.all([getSessionMeta({ data: params.id }), getSessionDetailFn({ data: params.id })]);
+    return { meta, detail };
+  },
   head: ({ loaderData }) =>
-    loaderData
+    loaderData?.meta
       ? {
           meta: [
-            { title: loaderData.title },
-            { name: "description", content: loaderData.description },
+            { title: loaderData.meta.title },
+            { name: "description", content: loaderData.meta.description },
             { property: "og:type", content: "article" },
             { property: "og:site_name", content: "Persona-Cast" },
-            { property: "og:title", content: loaderData.title },
-            { property: "og:description", content: loaderData.description },
-            { property: "og:url", content: loaderData.pageUrl },
-            { property: "og:image", content: loaderData.imageUrl },
+            { property: "og:title", content: loaderData.meta.title },
+            { property: "og:description", content: loaderData.meta.description },
+            { property: "og:url", content: loaderData.meta.pageUrl },
+            { property: "og:image", content: loaderData.meta.imageUrl },
             { property: "og:image:width", content: "1200" },
             { property: "og:image:height", content: "630" },
             { name: "twitter:card", content: "summary_large_image" },
-            { name: "twitter:image", content: loaderData.imageUrl },
+            { name: "twitter:image", content: loaderData.meta.imageUrl },
           ],
         }
       : {},
@@ -50,131 +54,99 @@ function toChatMessage(p: Persona, turnIndex: number): ChatMessage {
   };
 }
 
+type Detail = NonNullable<Awaited<ReturnType<typeof getSessionDetailFn>>>;
+
 function SessionPage() {
   const { id } = Route.useParams();
+  const { detail } = Route.useLoaderData();
+  // 別の対談に移ったら状態ごと作り直す
+  return <SessionView key={id} id={id} detail={detail} />;
+}
+
+function SessionView({ id, detail }: { id: string; detail: Detail | null }) {
   const { turns = 6 } = Route.useSearch();
 
-  const [session, setSession] = React.useState<SessionSummary | null>(null);
-  const [participants, setParticipants] = React.useState<Persona[]>([]);
-  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
+  const session = (detail?.session ?? null) as SessionSummary | null;
+  const saved = detail?.messages ?? [];
+  const [participants, setParticipants] = React.useState<Persona[]>((detail?.participants ?? []) as Persona[]);
+  // 保存済みの対談はそのまま表示する (再生成しない)
+  const [messages, setMessages] = React.useState<ChatMessage[]>(() =>
+    saved.map((m: any) => ({
+      turnIndex: m.turnIndex,
+      personaId: m.personaId,
+      name: m.personaName || "ペルソナ",
+      role: m.personaRole ?? "",
+      avatar: m.personaAvatar || "🎙️",
+      avatarUrl: m.personaAvatarUrl ?? null,
+      themeColor: m.personaThemeColor || "#6366f1",
+      content: m.content,
+      streaming: false,
+      referencedSessionId: m.referencedSessionId,
+      referencedArticleTitle: m.referencedArticleTitle,
+    }))
+  );
   const [pastMemories, setPastMemories] = React.useState<PastMemory[]>([]);
   const [speakerId, setSpeakerId] = React.useState<string | null>(null);
-  const [status, setStatus] = React.useState<Status>("loading");
+  const [status, setStatus] = React.useState<Status>(!session ? "error" : saved.length > 0 ? "done" : "loading");
   const [error, setError] = React.useState<string | null>(null);
   const bottomRef = React.useRef<HTMLDivElement>(null);
   const stickToBottom = React.useRef(true);
 
+  // 未生成の対談だけ、SSEで生成を始める
   React.useEffect(() => {
-    let cancelled = false;
+    if (!session || saved.length > 0) return;
     let source: EventSource | null = null;
+    setStatus("streaming");
+    source = new EventSource(`/api/sessions/${id}/stream?turns=${turns}`);
+    const parse = (e: Event) => JSON.parse((e as MessageEvent).data);
 
-    setSession(null);
-    setMessages([]);
-    setPastMemories([]);
-    setStatus("loading");
-    setError(null);
-
-    (async () => {
-      try {
-        const [detail, all] = await Promise.all([
-          api<{
-            session: SessionSummary;
-            messages: (ChatMessage & {
-              personaName: string | null;
-              personaAvatar: string | null;
-              personaAvatarUrl: string | null;
-              personaThemeColor: string | null;
-            })[];
-          }>(`/api/sessions/${id}`),
-          api<{ personas: Persona[] }>("/api/personas").catch(() => ({ personas: [] as Persona[] })),
-        ]);
-        if (cancelled) return;
-
-        setSession(detail.session);
-        setParticipants(all.personas.filter((p) => detail.session.personaIds.includes(p.id)));
-
-        // 保存済みの対談があればそのまま表示する (再生成しない)
-        if (detail.messages.length > 0) {
-          setMessages(
-            detail.messages.map((m: any) => ({
-              turnIndex: m.turnIndex,
-              personaId: m.personaId,
-              name: m.personaName || "ペルソナ",
-              role: all.personas.find((p) => p.id === m.personaId)?.role ?? "",
-              avatar: m.personaAvatar || "🎙️",
-              avatarUrl: m.personaAvatarUrl ?? null,
-              themeColor: m.personaThemeColor || "#6366f1",
-              content: m.content,
-              streaming: false,
-              referencedSessionId: m.referencedSessionId,
-              referencedArticleTitle: m.referencedArticleTitle,
-            }))
-          );
-          setStatus("done");
-          return;
-        }
-
-        // 未生成ならSSEで対談を開始
-        setStatus("streaming");
-        source = new EventSource(`/api/sessions/${id}/stream?turns=${turns}`);
-        const parse = (e: Event) => JSON.parse((e as MessageEvent).data);
-
-        source.addEventListener("session_start", (e) => {
-          const evt = parse(e);
-          setPastMemories(evt.pastMemories ?? []);
-          if (Array.isArray(evt.personas)) setParticipants(evt.personas);
-        });
-        source.addEventListener("turn_start", (e) => {
-          const evt = parse(e);
-          setSpeakerId(evt.persona.id);
-          setMessages((prev) => [...prev, toChatMessage(evt.persona, evt.turnIndex)]);
-        });
-        source.addEventListener("chunk", (e) => {
-          const evt = parse(e);
-          setMessages((prev) =>
-            prev.map((m) => (m.turnIndex === evt.turnIndex ? { ...m, content: m.content + evt.chunk } : m))
-          );
-        });
-        source.addEventListener("turn_end", (e) => {
-          const evt = parse(e);
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.turnIndex === evt.turnIndex
-                ? {
-                    ...m,
-                    content: evt.content ?? m.content,
-                    streaming: false,
-                    referencedSessionId: evt.referencedSessionId,
-                    referencedArticleTitle: evt.referencedArticleTitle,
-                  }
-                : m
-            )
-          );
-        });
-        source.addEventListener("session_end", () => {
-          setSpeakerId(null);
-          setStatus("done");
-          source?.close();
-        });
-        // サーバーが送る error イベント (data あり) と、接続断 (data なし) の両方を扱う
-        source.addEventListener("error", (e) => {
-          const data = (e as MessageEvent).data;
-          setError(data ? JSON.parse(data).message : "接続が切れました。");
-          setSpeakerId(null);
-          setStatus("error");
-          source?.close();
-        });
-      } catch (err: any) {
-        if (cancelled) return;
-        setError(err.message);
-        setStatus("error");
-      }
-    })();
-
-    return () => {
-      cancelled = true;
+    source.addEventListener("session_start", (e) => {
+      const evt = parse(e);
+      setPastMemories(evt.pastMemories ?? []);
+      if (Array.isArray(evt.personas)) setParticipants(evt.personas);
+    });
+    source.addEventListener("turn_start", (e) => {
+      const evt = parse(e);
+      setSpeakerId(evt.persona.id);
+      setMessages((prev) => [...prev, toChatMessage(evt.persona, evt.turnIndex)]);
+    });
+    source.addEventListener("chunk", (e) => {
+      const evt = parse(e);
+      setMessages((prev) =>
+        prev.map((m) => (m.turnIndex === evt.turnIndex ? { ...m, content: m.content + evt.chunk } : m))
+      );
+    });
+    source.addEventListener("turn_end", (e) => {
+      const evt = parse(e);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.turnIndex === evt.turnIndex
+            ? {
+                ...m,
+                content: evt.content ?? m.content,
+                streaming: false,
+                referencedSessionId: evt.referencedSessionId,
+                referencedArticleTitle: evt.referencedArticleTitle,
+              }
+            : m
+        )
+      );
+    });
+    source.addEventListener("session_end", () => {
+      setSpeakerId(null);
+      setStatus("done");
       source?.close();
-    };
+    });
+    // サーバーが送る error イベント (data あり) と、接続断 (data なし) の両方を扱う
+    source.addEventListener("error", (e) => {
+      const data = (e as MessageEvent).data;
+      setError(data ? JSON.parse(data).message : "接続が切れました。");
+      setSpeakerId(null);
+      setStatus("error");
+      source?.close();
+    });
+    return () => source?.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, turns]);
 
   // 末尾付近を見ている間だけ自動スクロールする
@@ -189,13 +161,6 @@ function SessionPage() {
     if (status === "streaming" && stickToBottom.current) bottomRef.current?.scrollIntoView({ block: "end" });
   }, [messages, status]);
 
-  if (status === "loading" && !session) {
-    return (
-      <div className="flex items-center justify-center gap-2 py-24 text-sm text-zinc-400">
-        <Loader2 className="h-4 w-4 animate-spin" /> 読み込み中…
-      </div>
-    );
-  }
   if (!session) {
     return (
       <div className="space-y-3 py-24 text-center">

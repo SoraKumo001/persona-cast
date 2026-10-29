@@ -2,11 +2,14 @@ import React from "react";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, Link2, Loader2, MessagesSquare } from "lucide-react";
 import { PersonaAvatar } from "../client/components/PersonaAvatar";
-import { GenreCount, SessionListItem, api, formatDate, hostOf, postJson } from "../client/lib/api";
+import { GenreCount, SessionListItem, formatDate, hostOf, postJson } from "../client/lib/api";
+import { getSessionList } from "../server-fns/sessions";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>): { genre?: string } =>
     typeof search.genre === "string" && search.genre ? { genre: search.genre } : {},
+  loaderDeps: ({ search }) => ({ genre: search.genre }),
+  loader: ({ deps }) => getSessionList({ data: deps.genre }),
   component: HomePage,
 });
 
@@ -21,10 +24,11 @@ function isHttpUrl(value: string) {
 
 function HomePage() {
   const { genre } = Route.useSearch();
+  const { sessions, genres } = Route.useLoaderData() as { sessions: SessionListItem[]; genres: GenreCount[] };
   return (
     <div className="space-y-10">
       <NewDialogueForm />
-      <SessionList genre={genre} />
+      <SessionList genre={genre} sessions={sessions} genres={genres} />
     </div>
   );
 }
@@ -101,27 +105,7 @@ function NewDialogueForm() {
   );
 }
 
-function SessionList({ genre }: { genre?: string }) {
-  const [sessions, setSessions] = React.useState<SessionListItem[] | null>(null);
-  const [genres, setGenres] = React.useState<GenreCount[]>([]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    setSessions(null);
-    api<{ sessions: SessionListItem[]; genres: GenreCount[] }>(
-      `/api/sessions${genre ? `?genre=${encodeURIComponent(genre)}` : ""}`
-    )
-      .then((r) => {
-        if (cancelled) return;
-        setSessions(r.sessions);
-        setGenres(r.genres);
-      })
-      .catch(() => !cancelled && setSessions([]));
-    return () => {
-      cancelled = true;
-    };
-  }, [genre]);
-
+function SessionList({ genre, sessions, genres }: { genre?: string; sessions: SessionListItem[]; genres: GenreCount[] }) {
   const total = genres.reduce((n, g) => n + g.count, 0);
   const chip = (active: boolean) =>
     `whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
@@ -151,9 +135,7 @@ function SessionList({ genre }: { genre?: string }) {
         </nav>
       )}
 
-      {sessions === null ? (
-        <p className="py-12 text-center text-sm text-zinc-500">読み込み中…</p>
-      ) : sessions.length === 0 ? (
+      {sessions.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-16 text-center text-sm text-zinc-400">
           <MessagesSquare className="h-8 w-8 text-zinc-600" />
           {genre ? (
