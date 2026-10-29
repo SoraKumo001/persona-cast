@@ -52,13 +52,35 @@ export async function generateEmbedding(text: string, env: Env): Promise<number[
 }
 
 /**
- * 過去の対談記憶から、記事内容やクエリに類似するチャンクを検索
+ * 過去の対談記憶から、記事内容やクエリに類似するチャンクを検索。
+ * 管理者が非表示にした対談の記憶は、結果から外す
  */
 export async function searchSimilarMemories(
   queryText: string,
   env: Env,
   limit = 3,
   minScore = 0.55
+): Promise<MemorySearchResult[]> {
+  // 外した分で件数が減らないよう、多めに取ってから絞る
+  const found = await searchRawMemories(queryText, env, limit + 5, minScore);
+  if (found.length === 0) {
+    return found;
+  }
+  const ids = [...new Set(found.map((m) => m.sessionId))];
+  const { results: hidden } = await env.DB.prepare(
+    `SELECT id FROM sessions WHERE hidden_at IS NOT NULL AND id IN (${ids.map(() => "?").join(",")})`
+  )
+    .bind(...ids)
+    .all<{ id: string }>();
+  const hiddenIds = new Set(hidden.map((r) => r.id));
+  return found.filter((m) => !hiddenIds.has(m.sessionId)).slice(0, limit);
+}
+
+async function searchRawMemories(
+  queryText: string,
+  env: Env,
+  limit: number,
+  minScore: number
 ): Promise<MemorySearchResult[]> {
   const queryVector = await generateEmbedding(queryText, env);
 

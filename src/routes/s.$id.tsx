@@ -11,7 +11,7 @@ import {
   type SessionSummary,
 } from "../client/lib/api";
 import { getSessionMeta } from "../server-fns/session-meta";
-import { getSessionDetailFn } from "../server-fns/sessions";
+import { getRelatedSessionsFn, getSessionDetailFn } from "../server-fns/sessions";
 
 export const Route = createFileRoute("/s/$id")({
   loader: async ({ params }) => {
@@ -19,7 +19,9 @@ export const Route = createFileRoute("/s/$id")({
       getSessionMeta({ data: params.id }),
       getSessionDetailFn({ data: params.id }),
     ]);
-    return { meta, detail };
+    // 生成済みの対談だけ、近い過去の対談を添える
+    const related = detail && detail.messages.length > 0 ? await getRelatedSessionsFn({ data: params.id }) : [];
+    return { meta, detail, related };
   },
   head: ({ loaderData }) =>
     loaderData?.meta
@@ -38,8 +40,28 @@ export const Route = createFileRoute("/s/$id")({
             { name: "twitter:card", content: "summary_large_image" },
             { name: "twitter:image", content: loaderData.meta.imageUrl },
           ],
+          links: [{ rel: "canonical", href: loaderData.meta.pageUrl }],
+          scripts: loaderData.detail
+            ? [
+                {
+                  type: "application/ld+json",
+                  children: JSON.stringify({
+                    "@context": "https://schema.org",
+                    "@type": "Article",
+                    headline: loaderData.detail.session.articleTitle,
+                    description: loaderData.meta.description,
+                    datePublished: loaderData.detail.session.createdAt,
+                    inLanguage: "ja",
+                    image: loaderData.meta.imageUrl,
+                    mainEntityOfPage: loaderData.meta.pageUrl,
+                    publisher: { "@type": "Organization", name: "Persona-Cast" },
+                  }).replace(/</gu, "\\u003c"),
+                },
+              ]
+            : [],
         }
-      : {},
+      : // 存在しない・非表示の対談は、検索結果に残さない
+        { meta: [{ name: "robots", content: "noindex" }] },
   component: SessionPage,
 });
 
@@ -82,9 +104,39 @@ type Detail = NonNullable<Awaited<ReturnType<typeof getSessionDetailFn>>>;
 
 function SessionPage() {
   const { id } = Route.useParams();
-  const { detail, meta } = Route.useLoaderData();
+  const { detail, meta, related } = Route.useLoaderData();
   // 別の対談に移ったら状態ごと作り直す
-  return <SessionView detail={detail} id={id} key={id} pageUrl={meta?.pageUrl ?? null} />;
+  return <SessionView detail={detail} id={id} key={id} pageUrl={meta?.pageUrl ?? null} related={related} />;
+}
+
+type Related = Awaited<ReturnType<typeof getRelatedSessionsFn>>;
+
+/** 内容の近い過去の対談。対談ページ同士のリンクにもなる */
+function RelatedSessions({ items }: { items: Related }) {
+  if (items.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-labelledby="related-heading" className="space-y-2 pt-2">
+      <h2 className="text-sm font-semibold text-zinc-200" id="related-heading">
+        関連する対談
+      </h2>
+      <ul className="space-y-2">
+        {items.map((r) => (
+          <li key={r.sessionId}>
+            <Link
+              className="block rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3 hover:border-zinc-600"
+              params={{ id: r.sessionId }}
+              to="/s/$id"
+            >
+              <span className="block text-sm font-medium text-zinc-100">{r.articleTitle}</span>
+              <span className="mt-0.5 line-clamp-2 block text-xs text-zinc-400">{r.topicSummary}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function initialStatus(hasSession: boolean, savedCount: number): Status {
@@ -94,7 +146,17 @@ function initialStatus(hasSession: boolean, savedCount: number): Status {
   return savedCount > 0 ? "done" : "loading";
 }
 
-function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | null; pageUrl: string | null }) {
+function SessionView({
+  id,
+  detail,
+  pageUrl,
+  related,
+}: {
+  id: string;
+  detail: Detail | null;
+  pageUrl: string | null;
+  related: Related;
+}) {
   const session = (detail?.session ?? null) as SessionSummary | null;
   const saved = detail?.messages ?? [];
   // 共有URLは、loader が返した値を優先し、無ければ (取得に失敗したときなど) 表示中のURLから作る
@@ -346,6 +408,8 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
           {error}
         </p>
       ) : null}
+
+      {status === "done" && <RelatedSessions items={related} />}
 
       {status === "done" && (
         <div className="pt-2 text-center">

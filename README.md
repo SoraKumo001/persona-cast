@@ -238,6 +238,17 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 
 トップページの一覧は1ページ24件で、`/?page=N` (ジャンル指定と併用できる `/?genre=…&page=N`) で切り替えます。1ページ目は `page` を省略します。範囲外のページは端に寄せます。`GET /api/sessions` も `page` と `limit` (1〜100) を受け付け、`total` と `totalPages` を返します。各ページは普通のリンクなので、SSR とエッジキャッシュはページごとに効きます。
 
+## 対談の非表示 (管理画面 > 対談)
+
+- 公開した対談は、管理画面の「対談」タブで非表示にできます (タイトル・URLで検索可、「非表示のみ」で絞り込み、いつでも再公開)。削除はせず、`sessions.hidden_at` に日時を入れます (`migrations/0006_session_hidden.sql` と同等の列は起動時にも自動追加)。
+- 非表示の対談は、一覧・詳細 (`/s/:id`、`GET /api/sessions/:id`)・OGP画像・sitemap/RSS・記憶検索・「関連する対談」から外れます。同じ記事のURLを送っても作り直せません (409)。
+- 非表示・再公開のときは、その対談と一覧・sitemap・RSS のエッジキャッシュを消します。消せなかったコピーは、有効期限 (最長10分) で切れます。
+
+## 関連する対談・検索エンジン向けの出力
+
+- 生成済みの対談ページの下に、内容の近い過去の対談を最大3件出します。記憶検索 (Vectorize、無ければ D1) の類似度が 0.5 以上のものだけです。検索に失敗してもページは表示します。
+- `/sitemap.xml` (公開中の対談を新しい順に最大5000件)、`/rss.xml` (新着30件)、`/robots.txt` (`/admin` と `/api/` を除外し、sitemap を案内) を返します。対談ページには canonical と JSON-LD (Article) を出し、存在しない・非表示のページには `noindex` を付けます。
+
 ## ファビコンと管理画面のURL
 
 - ファビコンは `public/` にあります (`favicon.svg` が本体、`favicon-32.png` / `favicon.ico` / `apple-touch-icon.png` は `python scripts/make-favicons.py public` で同じ図形から生成。Pillow が必要)。

@@ -18,6 +18,7 @@ export const Route = createRootRoute({
       { rel: "icon", href: "/favicon-32.png", type: "image/png", sizes: "32x32" },
       { rel: "icon", href: "/favicon.ico", sizes: "48x48" },
       { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
+      { rel: "alternate", type: "application/rss+xml", title: "Persona-Cast", href: "/rss.xml" },
     ],
   }),
   component: RootComponent,

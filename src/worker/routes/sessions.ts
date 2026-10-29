@@ -20,11 +20,16 @@ import type { Env } from "../types";
 
 const app = new Hono<{ Bindings: Env }>();
 
+type ExistingSessionRow = SessionRow & { hiddenAt: string | null };
+
+// 非表示の対談も探す (同じ記事で作り直して、取り下げを回避されないように)
 function findSessionByNormalizedUrl(db: D1Database, normalizedUrl: string) {
   return db
-    .prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE normalized_url = ? ORDER BY created_at DESC LIMIT 1`)
+    .prepare(
+      `SELECT ${SESSION_COLUMNS}, hidden_at as hiddenAt FROM sessions WHERE normalized_url = ? ORDER BY created_at DESC LIMIT 1`
+    )
     .bind(normalizedUrl)
-    .first<SessionRow>();
+    .first<ExistingSessionRow>();
 }
 
 // 対談の一覧。genre で絞り込み、ジャンル別の件数も返す
@@ -101,7 +106,10 @@ app.post("/", async (c) => {
   }
 
   // 1. 同じページの対談が既にあれば取得せずそれを返す
-  const existingResponse = (row: SessionRow) => {
+  const existingResponse = (row: ExistingSessionRow) => {
+    if (row.hiddenAt) {
+      return c.json({ error: "この記事の対談は公開されていません" }, 409);
+    }
     const s = toSession(row);
     return c.json({
       existing: true,
@@ -232,7 +240,7 @@ app.get("/:id/stream", async (c) => {
 
   const session = await c.env.DB.prepare(
     `SELECT persona_ids as personaIds, (SELECT COUNT(*) FROM messages m WHERE m.session_id = sessions.id) as messageCount
-     FROM sessions WHERE id = ?`
+     FROM sessions WHERE id = ? AND hidden_at IS NULL`
   )
     .bind(sessionId)
     .first<{ personaIds: string; messageCount: number }>();

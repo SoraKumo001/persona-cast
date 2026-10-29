@@ -10,8 +10,8 @@ import type { OgpInfo } from "./scraper";
 export const SESSION_COLUMNS =
   "id, source_url as sourceUrl, normalized_url as normalizedUrl, article_title as articleTitle, article_summary as articleSummary, summary, genre, og_json as ogJson, persona_ids as personaIds, created_at as createdAt";
 
-// 発言が1件以上ある対談のみを一覧に出す
-const HAS_MESSAGES = "EXISTS (SELECT 1 FROM messages m WHERE m.session_id = sessions.id)";
+// 発言が1件以上あり、管理者が非表示にしていない対談のみを一覧に出す
+export const HAS_MESSAGES = "EXISTS (SELECT 1 FROM messages m WHERE m.session_id = sessions.id) AND hidden_at IS NULL";
 
 export function toSession(row: SessionRow) {
   const { ogJson, personaIds, ...rest } = row;
@@ -103,7 +103,10 @@ export async function listSessions(db: D1Database, options: { genre?: string; pa
 
 /** 対談の詳細。セッション・発言ログ・参加ペルソナ。無ければ null */
 export async function getSessionDetail(db: D1Database, id: string) {
-  const row = await db.prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = ?`).bind(id).first<SessionRow>();
+  const row = await db
+    .prepare(`SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = ? AND hidden_at IS NULL`)
+    .bind(id)
+    .first<SessionRow>();
   if (!row) {
     return null;
   }

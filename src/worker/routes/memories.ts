@@ -58,6 +58,7 @@ app.get("/", async (c) => {
       `SELECT id, session_id as sessionId, article_title as articleTitle, source_url as sourceUrl,
               topic_summary as topicSummary, key_quotes as keyQuotes, persona_ids as personaIds, created_at as createdAt
        FROM memory_chunks
+       WHERE session_id NOT IN (SELECT id FROM sessions WHERE hidden_at IS NOT NULL)
        ORDER BY created_at DESC
        LIMIT 30`
     ).all<MemoryChunkRow>();

@@ -71,6 +71,17 @@ function withHeaders(res: Response, headers: Record<string, string>): Response {
   return out;
 }
 
+/** 対談を非表示にしたときに、エッジに残った応答を消す (消せなければ、有効期限で自然に切れる) */
+export async function purgeSessionCache(origin: string, sessionId: string): Promise<void> {
+  if (typeof caches === "undefined") {
+    return;
+  }
+  const cache = (caches as unknown as { default: Cache }).default;
+  const id = encodeURIComponent(sessionId);
+  const paths = [`/s/${id}`, `/api/sessions/${id}`, `/api/sessions/${id}/ogp.png`, "/", "/sitemap.xml", "/rss.xml"];
+  await Promise.all(paths.map((p) => cache.delete(new Request(`${origin}${p}`, { method: "GET" })).catch(() => false)));
+}
+
 export async function withEdgeCache(
   request: Request,
   ctx: ExecutionContext,

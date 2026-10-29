@@ -171,7 +171,7 @@ interface OgpPersonaRow {
 /** 対談セッションのOGP画像(PNG)を返す。内容(発言数)ごとにR2へキャッシュする */
 export async function getSessionOgpImage(env: Env, sessionId: string): Promise<Uint8Array | null> {
   const session = await env.DB.prepare(
-    "SELECT id, source_url, article_title, article_summary, summary, genre, og_json, persona_ids FROM sessions WHERE id = ?"
+    "SELECT id, source_url, article_title, article_summary, summary, genre, og_json, persona_ids FROM sessions WHERE id = ? AND hidden_at IS NULL"
   )
     .bind(sessionId)
     .first<OgpSessionRow>();

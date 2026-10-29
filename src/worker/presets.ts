@@ -98,6 +98,9 @@ export async function ensureDatabaseTables(db: D1Database): Promise<void> {
 
     await db.prepare("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)").run();
 
+    // migrations/0006 相当
+    await addColumnIfMissing(db, "sessions", "hidden_at", "TEXT");
+
     // 正規化URL未設定の既存セッションをバックフィル
     const { results: unnormalized } = await db
       .prepare("SELECT id, source_url FROM sessions WHERE normalized_url IS NULL")

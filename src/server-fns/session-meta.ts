@@ -14,7 +14,7 @@ export const getSessionMeta = createServerFn({ method: "GET" })
   .handler(async ({ data: id }): Promise<SessionMeta | null> => {
     const { env } = await import("cloudflare:workers");
     const row = await (env as { DB: D1Database }).DB.prepare(
-      "SELECT article_title, summary, article_summary, persona_ids FROM sessions WHERE id = ?"
+      "SELECT article_title, summary, article_summary, persona_ids FROM sessions WHERE id = ? AND hidden_at IS NULL"
     )
       .bind(id)
       .first<{ article_summary: string; article_title: string; persona_ids: string; summary: string | null }>();

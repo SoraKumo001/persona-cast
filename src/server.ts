@@ -9,11 +9,14 @@ interface FetchHandler {
   fetch?: (request: Request, env: Env, ctx: ExecutionContext) => Promise<Response> | Response;
 }
 
+/** SSR ではなく Hono (worker/index.ts) が返すパス */
+const WORKER_FILES = new Set(["/sitemap.xml", "/rss.xml", "/robots.txt"]);
+
 async function handle(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
 
-  // API エンドポイント（SSEストリーミング、ペルソナCRUD、セッション作成、記憶検索）
-  if (url.pathname.startsWith("/api")) {
+  // API エンドポイント（SSEストリーミング、ペルソナCRUD、セッション作成、記憶検索）と、検索エンジン向けのファイル
+  if (url.pathname.startsWith("/api") || WORKER_FILES.has(url.pathname)) {
     return await workerApp.fetch(request, env, ctx);
   }
 
