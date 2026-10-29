@@ -97,6 +97,9 @@ function initialStatus(hasSession: boolean, savedCount: number): Status {
 function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | null; pageUrl: string | null }) {
   const session = (detail?.session ?? null) as SessionSummary | null;
   const saved = detail?.messages ?? [];
+  // 共有URLは、loader が返した値を優先し、無ければ (取得に失敗したときなど) 表示中のURLから作る
+  const shareUrl =
+    pageUrl ?? (typeof window === "undefined" ? null : `${window.location.origin}/s/${encodeURIComponent(id)}`);
   const [participants, setParticipants] = React.useState<Persona[]>((detail?.participants ?? []) as Persona[]);
   // 保存済みの対談はそのまま表示する (再生成しない)
   const [messages, setMessages] = React.useState<ChatMessage[]>(() =>
@@ -228,7 +231,7 @@ function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | nul
             </>
           ) : null}
         </nav>
-        {status === "done" && pageUrl && session && <ShareOnX title={session.articleTitle} url={pageUrl} />}
+        {status === "done" && shareUrl && session && <ShareOnX title={session.articleTitle} url={shareUrl} />}
       </div>
 
       <OgpCard

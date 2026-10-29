@@ -15,7 +15,7 @@ export default defineConfig({
       EMBEDDING_MODEL: bindings.text("@cf/baai/bge-m3"),
       DB: bindings.d1({
         name: "persona-cast-db",
-        id: "b2c5e638-4f91-4c91-9e28-3d1f5e27a901",
+        id: "540e1319-2d21-485a-81bf-4c748450be6d",
       }),
       VECTORIZE: bindings.vectorize({
         name: "persona-cast-memories",

@@ -96,11 +96,13 @@ TanStack Start による SSR ページと API サーバーがローカル `worke
 
 ### 1. リソースを作る (初回のみ)
 ```bash
-cf d1 create persona-cast-db
-cf vectorize create persona-cast-memories --dimensions=1024 --metric=cosine
+cf d1 create --name persona-cast-db
+cf vectorize create --name persona-cast-memories --index-config-dimensions 1024 --index-config-metric cosine
 cf r2 buckets create --name persona-cast-avatars
 ```
-D1 を新規に作ったら、発行された ID を `cloudflare.config.ts` の `DB.id` と、`package.json` の `d1:migrate` 系のスクリプトに反映します。
+`cf` のコマンドは、名前を位置引数ではなく `--name` で渡します (`cf d1 create persona-cast-db` は「Unknown command」になります)。
+実行前に `--dry-run` を付けると、作らずに内容だけ確認できます。
+D1 を作ったら、発行された ID (`cf d1 list` でも確認できます) を **`cloudflare.config.ts` の `DB.id` に設定します**。`bun run d1:migrate` はこの ID を読むので、ほかに書く場所はありません。リポジトリの ID (`b2c5e638-…`) は別アカウントのものなので、そのままだと「The database … could not be found」になります。
 Analytics Engine のデータセット (`persona_cast_events`) は、デプロイ時に作られる想定です。
 
 ### 2. 本番 D1 のマイグレーション (**デプロイより先**)
@@ -109,8 +111,20 @@ bun run d1:migrate
 ```
 新しいコードを先にデプロイすると、起動時の自動追加 (`ensureDatabaseTables`) が列を足し、その後のマイグレーションが「列が重複」で失敗します。必ずマイグレーションを先に流してください。
 
-### 3. シークレットの登録
-`cf workers secrets update <名前> --worker persona-cast --text <値>` で登録します (複数なら `cf workers secrets bulk`)。値をコマンドラインに書くとシェルの履歴に残るので注意してください。
+### 3. シークレットの準備
+**`cf workers secrets update` は、Worker がまだ存在しない初回には使えません** (「This Worker does not exist on your account」になります)。初回は、シークレットをファイルに書き、デプロイと一緒にアップロードします。
+
+`.dev.vars.production` を作ります (`.dev.vars.*` は git の管理外です。**コミットしないこと**)。
+
+```dotenv
+OPENCODE_API_KEY=...
+ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
+ACCESS_AUD=...
+# 任意
+ANALYTICS_SALT=...
+CF_ACCOUNT_ID=...
+CF_API_TOKEN=...
+```
 
 | シークレット | 用途 | |
 |---|---|---|
@@ -120,13 +134,17 @@ bun run d1:migrate
 | `CF_ACCOUNT_ID`, `CF_API_TOKEN` | アクセス状況の集計 (トークンの権限は Account Analytics の読み取りだけ) | 任意 |
 
 `ACCESS_DISABLED` は本番では設定しません (localhost でしか効きませんが、念のため)。
+`ACCESS_AUD` は、手順6で Access のアプリを作ってから分かります。先にデプロイしたい場合は、まず必須のうち `OPENCODE_API_KEY` だけを入れ、あとから追加できます (手順4の「2回目以降」)。
 
 ### 4. デプロイ
 ```bash
 bun run check && bun test && bun run build   # 事前確認 (任意)
-bun run deploy                               # cf deploy
+cf deploy --secrets-file .dev.vars.production --dry-run   # アップロードせずに確認
+cf deploy --secrets-file .dev.vars.production             # 初回
 ```
-宣言したシークレットが未登録でデプロイが止まる場合は、先にデプロイしてからシークレットを登録してください。
+- ファイルに書いたキーのうち、`cloudflare.config.ts` で宣言済みのものだけがアップロードされます。
+- **2回目以降**にシークレットだけ変えるときは、Worker が存在するので `cf workers secrets update <名前> --worker persona-cast --text <値>` (複数なら `cf workers secrets bulk`) が使えます。値をコマンドラインに書くとシェルの履歴に残る点に注意してください。
+- `cf deploy` は、設定にある資源 (D1・R2・Vectorize など) が無い場合に自動で作る (`--provision`、既定で有効) 場合があります。手順1で先に作ってある前提で、足りないものだけが作られます。
 
 ### 5. 独自ドメイン
 ダッシュボードの Workers > 該当 Worker > Settings > Domains & Routes で、公開するドメイン (`croud.jp`) を追加します。**`*.workers.dev` では Cache API が効きません。**
