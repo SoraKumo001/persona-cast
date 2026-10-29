@@ -5,6 +5,7 @@ import { cacheFor } from "../cache";
 import { clampInt, rateLimit } from "../middleware/rate-limit";
 import { ADULT_MESSAGE, isAdultHost } from "../services/adult-filter";
 import { countTodaySessions, getDailyLimit } from "../services/settings";
+import { trackEvent } from "../services/analytics-track";
 import { scrapeUrl, ScrapeError } from "../services/scraper";
 import { normalizeUrl } from "../services/url-normalize";
 import { analyzeArticle, defaultTurns, PersonaCandidate } from "../services/analyze";
@@ -82,7 +83,10 @@ app.post("/", async (c) => {
   }
 
   // 成人向けのドメインは、取得も分析もせずに断る (外部アクセス・LLMのコストをかけない)
-  if (isAdultHost(new URL(normalizedUrl).hostname)) return c.json({ error: ADULT_MESSAGE }, 400);
+  if (isAdultHost(new URL(normalizedUrl).hostname)) {
+    trackEvent(c.env, "adult_blocked");
+    return c.json({ error: ADULT_MESSAGE }, 400);
+  }
 
   // 1. 同じページの対談が既にあれば取得せずそれを返す
   const existingResponse = (row: any) => {
@@ -100,6 +104,7 @@ app.post("/", async (c) => {
   // 1日に作れる対談の総数 (管理者が設定。既定1000)。IPごとの制限より先に確認し、断られた送信は回数に数えない
   const [dailyLimit, todayCount] = await Promise.all([getDailyLimit(c.env.DB), countTodaySessions(c.env.DB)]);
   if (todayCount >= dailyLimit) {
+    trackEvent(c.env, "daily_limit_reached");
     return c.json({ error: "本日の新しい対談の上限に達しました。日本時間の0時を過ぎてからもう一度お試しください。" }, 429);
   }
 
@@ -121,6 +126,7 @@ app.post("/", async (c) => {
 
   // リダイレクト先のドメイン、またはページ自身の成人向け宣言
   if (article.adultRated || isAdultHost(new URL(article.url).hostname)) {
+    trackEvent(c.env, "adult_blocked");
     return c.json({ error: ADULT_MESSAGE }, 400);
   }
 
@@ -150,7 +156,10 @@ ${article.content.slice(0, 300)}`, c.env, 3, 0.45),
   ]);
 
   // 記事の内容が成人向けと判定されたら、保存せずに断る
-  if (analysis.adult) return c.json({ error: ADULT_MESSAGE }, 400);
+  if (analysis.adult) {
+    trackEvent(c.env, "adult_blocked");
+    return c.json({ error: ADULT_MESSAGE }, 400);
+  }
 
   // 4. セッションをD1に保存
   await c.env.DB.prepare(
@@ -171,6 +180,7 @@ ${article.content.slice(0, 300)}`, c.env, 3, 0.45),
     )
     .run();
 
+  trackEvent(c.env, "dialogue_created");
   return c.json({
     existing: false,
     sessionId,

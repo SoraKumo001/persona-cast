@@ -1,6 +1,7 @@
 import { Env } from "./worker/types";
 import workerApp from "./worker/index";
 import { withEdgeCache } from "./worker/cache";
+import { trackRequest } from "./worker/services/analytics-track";
 import startHandler from "@tanstack/react-start/server-entry";
 
 async function handle(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -29,7 +30,10 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
 }
 
 export default {
-  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    return withEdgeCache(request, ctx, () => handle(request, env, ctx));
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const startedAt = Date.now();
+    const response = await withEdgeCache(request, ctx, () => handle(request, env, ctx));
+    trackRequest(env, ctx, request, response, startedAt);
+    return response;
   },
 };

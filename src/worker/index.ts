@@ -5,6 +5,7 @@ import { getSiteOgpImage } from "./services/ogp-image";
 import { Env } from "./types";
 import personasRouter from "./routes/personas";
 import adminPersonasRouter from "./routes/admin-personas";
+import adminAnalyticsRouter from "./routes/admin-analytics";
 import adminSettingsRouter from "./routes/admin-settings";
 import sessionsRouter from "./routes/sessions";
 import memoriesRouter from "./routes/memories";
@@ -20,6 +21,7 @@ app.use("/api/memories/*", cors());
 app.route("/api/personas", personasRouter);
 app.route("/api/admin/personas", adminPersonasRouter);
 app.route("/api/admin/settings", adminSettingsRouter);
+app.route("/api/admin/analytics", adminAnalyticsRouter);
 app.route("/api/sessions", sessionsRouter);
 app.route("/api/memories", memoriesRouter);
 

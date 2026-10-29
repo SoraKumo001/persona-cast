@@ -197,3 +197,32 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 - ファビコンは `public/` にあります (`favicon.svg` が本体、`favicon-32.png` / `favicon.ico` / `apple-touch-icon.png` は `python scripts/make-favicons.py public` で同じ図形から生成。Pillow が必要)。
 - 管理画面のURLは `/admin` です。旧URLの `/admin/personas` は 301 で `/admin` に転送します。Cloudflare Access のパスには `/admin` 自体も含めてください (`/admin/*` だけでは `/admin` が対象外です)。
 
+## アクセス状況 (管理画面 > アクセス状況)
+
+管理者が `/admin/analytics` で、アクセスの状況を見られます。記録と集計は Cloudflare の **Workers Analytics Engine**、実訪問者の計測は **Web Analytics** を使います。
+
+### 記録するもの
+`src/server.ts` の入口で、リクエストごとに `ANALYTICS` (データセット `persona_cast_events`) へ書き込みます。応答は遅らせず、失敗してもアプリには影響しません。列の使い方は `src/worker/services/analytics-track.ts` の先頭に書いてあります。
+
+- ページ (HTMLを返した回数)・API: ルート名 (IDは含めない)、ステータス、応答時間、エッジのキャッシュ HIT/MISS、国、参照元ホスト、端末 (PC/スマホ/タブレット/ボット)。対談ページは対談IDも。
+- 業務イベント: 新しく作られた対談、18禁で断った送信、1日の上限で断った送信、LLM の入力トークンとキャッシュ済みトークン。
+- 対象外: `/admin` 以下、静的ファイル、`/_serverFn`、ヘルスチェック。未知のパスは `other` にまとめます。
+- **生のIPは保存しません。** 訪問者は `IP + UA + 日付(日本時間) + ソルト` のハッシュで数え、日をまたぐと別人扱いです。ボットは `User-Agent` で判定し、人のページビューから除きます。
+
+### 見える指標
+ページビュー・訪問者(推定)・推移(24時間/7日/30日)、よく見られている対談、流入元、ページ別、国、端末、ステータス別の件数、キャッシュ HIT 率、応答時間 p50/p95、新規対談数、制限で断った数(429)、18禁・日次上限で断った数、LLM の入力キャッシュ率。
+アプリ内の画面遷移はサーバーが HTML を返さないため、ページビューには入りません (Web Analytics 側で見られます)。
+
+### 設定
+1. **API トークンを作る**: Cloudflare ダッシュボード > My Profile > API Tokens で、権限を「Account > Account Analytics > Read」だけにしたトークンを作ります。
+2. **シークレットを登録**: `cf workers secrets put CF_ACCOUNT_ID` (アカウントID)、`cf workers secrets put CF_API_TOKEN`、`cf workers secrets put ANALYTICS_SALT` (長いランダムな文字列)。
+3. 登録するまで、画面には設定の案内が出ます。ローカル (`cf dev`) では記録先に問い合わせできないため、集計は表示できません (記録の書き込みは単体テストで確認しています)。
+
+保持は約3か月で、データが多いときはサンプリングされます (集計は `_sample_interval` で重み付けします)。料金は Cloudflare の最新の価格表を確認してください。
+
+### Web Analytics (実訪問者・Core Web Vitals)
+`croud.jp` が Cloudflare のゾーンにあるので、次のどちらかで有効にします。
+
+- **自動**: ダッシュボードの Web Analytics で `croud.jp` を追加し、自動設定 (プロキシ経由で JS を自動挿入) を選ぶ。コードの変更は不要です。
+- **手動**: サイトを追加して表示される `token` を `cloudflare.config.ts` の `WEB_ANALYTICS_TOKEN` に設定する。設定するとビーコンを `<body>` の末尾に出します (管理画面では出しません)。**自動設定と併用すると二重に計測されるため、どちらか一方にしてください。**
+

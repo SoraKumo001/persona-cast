@@ -11,3 +11,10 @@ EMBEDDING_MODEL="@cf/baai/bge-m3"
 ACCESS_DISABLED="true"
 ACCESS_TEAM_DOMAIN=""
 ACCESS_AUD=""
+
+# アクセス状況 (任意)。未設定でもアプリは動く (管理画面の「アクセス状況」に設定案内が出る)
+# 訪問者ハッシュのソルト (長いランダムな文字列)
+ANALYTICS_SALT=
+# 集計の取得 (Analytics Engine SQL API)。トークンの権限は Account Analytics の読み取りだけ
+CF_ACCOUNT_ID=
+CF_API_TOKEN=

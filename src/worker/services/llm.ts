@@ -1,6 +1,7 @@
 import { streamText, generateText } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { Env } from "../types";
+import { trackEvent } from "./analytics-track";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -38,10 +39,11 @@ function splitSystem(messages: ChatMessage[]) {
 }
 
 /** プロンプトキャッシュの効き具合を確認するためのログ (入力トークンのうちキャッシュから読めた分) */
-function logUsage(label: string, usage: { inputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } } | undefined) {
+function logUsage(env: Env, label: string, usage: { inputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } } | undefined) {
   if (!usage?.inputTokens) return;
   const cached = usage.inputTokenDetails?.cacheReadTokens ?? 0;
   console.log(`[llm] ${label} input=${usage.inputTokens} cached=${cached} (${Math.round((cached / usage.inputTokens) * 100)}%)`);
+  trackEvent(env, "llm_usage", { value: usage.inputTokens, extra: cached });
 }
 
 /**
@@ -82,7 +84,7 @@ export async function* streamChatCompletion(
   }
   if (streamError) throw streamError;
   try {
-    logUsage("stream", await result.usage);
+    logUsage(env, "stream", await result.usage);
   } catch {
     // 使用量が取れなくても生成結果には影響させない
   }
@@ -118,7 +120,7 @@ export async function generateChatCompletion(
     temperature: 0.7,
   });
 
-  logUsage("generate", usage);
+  logUsage(env, "generate", usage);
   return text;
 }
 

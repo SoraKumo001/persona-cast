@@ -1,9 +1,13 @@
-import { Link, Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { Link, Outlet, createRootRoute, HeadContent, Scripts, useRouterState } from "@tanstack/react-router";
 import React from "react";
 import { THEME_INIT_SCRIPT, ThemeToggle } from "../client/components/ThemeToggle";
+import { getWebAnalyticsToken } from "../server-fns/site-meta";
 import "../client/index.css";
 
 export const Route = createRootRoute({
+  // ビーコンのトークンはデプロイ中は変わらないので、画面遷移のたびに取り直さない
+  loader: () => getWebAnalyticsToken(),
+  staleTime: Infinity,
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -27,6 +31,11 @@ const NAV = [
 ] as const;
 
 function RootComponent() {
+  const webAnalyticsToken = Route.useLoaderData();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // 管理画面の閲覧は、訪問者の統計に混ぜない
+  const showBeacon = !!webAnalyticsToken && !(pathname === "/admin" || pathname.startsWith("/admin/"));
+
   return (
     // data-theme はスクリプトが描画前に付与するため、サーバー出力との差を許容する
     <html lang="ja" suppressHydrationWarning>
@@ -65,6 +74,13 @@ function RootComponent() {
         <main className="mx-auto max-w-5xl px-4 py-8">
           <Outlet />
         </main>
+        {showBeacon && (
+          <script
+            defer
+            src="https://static.cloudflareinsights.com/beacon.min.js"
+            data-cf-beacon={JSON.stringify({ token: webAnalyticsToken })}
+          />
+        )}
         <Scripts />
       </body>
     </html>

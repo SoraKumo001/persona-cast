@@ -4,6 +4,11 @@ export interface Env {
   VECTORIZE?: any; // Cloudflare Vectorize binding
   ASSETS: Fetcher; // Static assets fetcher in Cloudflare Workers
   AVATARS?: R2Bucket; // ペルソナのアバター画像
+  ANALYTICS?: AnalyticsEngineDataset; // アクセス状況の記録 (Workers Analytics Engine)
+  ANALYTICS_SALT?: string; // 訪問者ハッシュのソルト (未設定なら固定値)
+  CF_ACCOUNT_ID?: string; // アクセス状況の集計 (Analytics Engine SQL API) に使う
+  CF_API_TOKEN?: string; // 権限は「アカウント > Account Analytics > 読み取り」だけにする
+  WEB_ANALYTICS_TOKEN?: string; // Cloudflare Web Analytics のビーコンのトークン (空なら出さない)
   ACCESS_TEAM_DOMAIN?: string; // 例: your-team.cloudflareaccess.com
   ACCESS_AUD?: string; // Cloudflare Access アプリケーションの AUD タグ
   ACCESS_DISABLED?: string; // "true" かつ localhost のときのみ検証をスキップ (開発用)

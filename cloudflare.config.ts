@@ -26,6 +26,13 @@ export default defineConfig({
       ACCESS_TEAM_DOMAIN: bindings.secret(),
       ACCESS_AUD: bindings.secret(),
       ACCESS_DISABLED: bindings.secret(), // ローカル開発専用 (localhost でのみ有効)
-      AVATARS: bindings.r2({ name: "persona-cast-avatars" }),    },
+      AVATARS: bindings.r2({ name: "persona-cast-avatars" }),
+      // アクセス状況: 記録先のデータセット名は src/worker/services/analytics-track.ts の DATASET と同じにする
+      ANALYTICS: bindings.analyticsEngineDataset({ name: "persona_cast_events" }),
+      ANALYTICS_SALT: bindings.secret(),
+      CF_ACCOUNT_ID: bindings.secret(),
+      CF_API_TOKEN: bindings.secret(), // 権限は Account Analytics の読み取りだけ
+      WEB_ANALYTICS_TOKEN: bindings.text(""), // Web Analytics のサイトトークン (空ならビーコンを出さない)
+    },
   },
 });

@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as MemoriesRouteImport } from './routes/memories'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminAnalyticsRouteImport } from './routes/admin.analytics'
 import { Route as AdminPersonasRouteImport } from './routes/admin.personas'
 import { Route as SIdRouteImport } from './routes/s.$id'
 
@@ -30,6 +32,16 @@ const MemoriesRoute = MemoriesRouteImport.update({
   path: '/memories',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAnalyticsRoute = AdminAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminPersonasRoute = AdminPersonasRouteImport.update({
   id: '/personas',
   path: '/personas',
@@ -45,30 +57,56 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/memories': typeof MemoriesRoute
+  '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/s/$id': typeof SIdRoute
+  '/admin/': typeof AdminIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRouteWithChildren
   '/memories': typeof MemoriesRoute
+  '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/s/$id': typeof SIdRoute
+  '/admin': typeof AdminIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/memories': typeof MemoriesRoute
+  '/admin/analytics': typeof AdminAnalyticsRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/s/$id': typeof SIdRoute
+  '/admin/': typeof AdminIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/admin' | '/memories' | '/admin/personas' | '/s/$id'
+  fullPaths:
+    | '/'
+    | '/admin'
+    | '/memories'
+    | '/admin/analytics'
+    | '/admin/personas'
+    | '/s/$id'
+    | '/admin/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/admin' | '/memories' | '/admin/personas' | '/s/$id'
-  id: '__root__' | '/' | '/admin' | '/memories' | '/admin/personas' | '/s/$id'
+  to:
+    | '/'
+    | '/memories'
+    | '/admin/analytics'
+    | '/admin/personas'
+    | '/s/$id'
+    | '/admin'
+  id:
+    | '__root__'
+    | '/'
+    | '/admin'
+    | '/memories'
+    | '/admin/analytics'
+    | '/admin/personas'
+    | '/s/$id'
+    | '/admin/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -101,6 +139,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MemoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/analytics': {
+      id: '/admin/analytics'
+      path: '/analytics'
+      fullPath: '/admin/analytics'
+      preLoaderRoute: typeof AdminAnalyticsRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/personas': {
       id: '/admin/personas'
       path: '/personas'
@@ -119,11 +171,15 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
+  AdminAnalyticsRoute: typeof AdminAnalyticsRoute
   AdminPersonasRoute: typeof AdminPersonasRoute
+  AdminIndexRoute: typeof AdminIndexRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminAnalyticsRoute: AdminAnalyticsRoute,
   AdminPersonasRoute: AdminPersonasRoute,
+  AdminIndexRoute: AdminIndexRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
