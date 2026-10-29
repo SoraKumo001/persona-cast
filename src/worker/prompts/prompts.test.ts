@@ -64,6 +64,18 @@ describe("全テンプレートの組み立て", () => {
     }
   });
 
+  test("system は発言者によらず共通で、発言者の役は user の末尾に置く (プロンプトキャッシュのため)", () => {
+    const other = { ...turn, currentPersona: { ...persona, id: "b", name: "ユキ" }, turnIndex: 2 };
+    const a = buildTurnMessages(turn);
+    const b = buildTurnMessages(other);
+    expect(a[0].content).toBe(b[0].content);
+    expect(a[0].content).not.toContain("ケン（エンジニア）として");
+    expect(a[1].content).toContain("ペルソナ「ケン」");
+    expect(b[1].content).toContain("ペルソナ「ユキ」");
+    // 履歴の後ろに発言者の役が来る
+    expect(a[1].content.indexOf("発言")).toBeLessThan(a[1].content.indexOf("ペルソナ「ケン」"));
+  });
+
   test("最終ターンだけ総括の指示になる", () => {
     const last = buildTurnMessages({ ...turn, turnIndex: 5 })[1].content;
     const mid = buildTurnMessages(turn)[1].content;

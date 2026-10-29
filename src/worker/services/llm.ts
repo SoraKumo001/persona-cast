@@ -37,6 +37,13 @@ function splitSystem(messages: ChatMessage[]) {
   };
 }
 
+/** プロンプトキャッシュの効き具合を確認するためのログ (入力トークンのうちキャッシュから読めた分) */
+function logUsage(label: string, usage: { inputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number } } | undefined) {
+  if (!usage?.inputTokens) return;
+  const cached = usage.inputTokenDetails?.cacheReadTokens ?? 0;
+  console.log(`[llm] ${label} input=${usage.inputTokens} cached=${cached} (${Math.round((cached / usage.inputTokens) * 100)}%)`);
+}
+
 /**
  * @ai-sdk の streamText を使ってリアルタイムストリーミング生成
  */
@@ -74,6 +81,11 @@ export async function* streamChatCompletion(
     yield chunk;
   }
   if (streamError) throw streamError;
+  try {
+    logUsage("stream", await result.usage);
+  } catch {
+    // 使用量が取れなくても生成結果には影響させない
+  }
 }
 
 /**
@@ -99,13 +111,14 @@ export async function generateChatCompletion(
   const provider = getOpenCodeProvider(env, sessionId);
   const model = provider(modelId);
 
-  const { text } = await generateText({
+  const { text, usage } = await generateText({
     model,
     ...splitSystem(messages),
     maxOutputTokens: 1000,
     temperature: 0.7,
   });
 
+  logUsage("generate", usage);
   return text;
 }
 

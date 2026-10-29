@@ -7,6 +7,7 @@ import type { ChatMessage } from "../services/llm";
 import type { MemorySearchResult } from "../services/memory";
 import { renderPrompt } from "./render";
 
+import dialogueSystem from "./dialogue-system.md?raw";
 import dialogueSpeaker from "./dialogue-speaker.md?raw";
 import dialogueMemoryItem from "./dialogue-memory-item.md?raw";
 import dialogueOpening from "./dialogue-opening.md?raw";
@@ -31,7 +32,14 @@ const LENGTH_HINTS = [
   "一言の相槌や反応のあと、一文だけ付け足す(50文字前後)",
 ];
 
-/** 対談: 1ターン分 (発言者のペルソナ設定を system、これまでの流れと指示を user にする) */
+/**
+ * 対談: 1ターン分。
+ * LLM のプロンプトキャッシュは先頭から一致した部分だけが効くので、全員に共通の内容を前に、
+ * 発言者ごとに違う内容 (誰として話すか) を最後に置く。
+ *   system = 番組のルール・記事・記憶・出演者 (全ターン共通)
+ *   user   = これまでの対談 (ターンごとに末尾へ伸びる) → 発言者の役 → 今回の指示
+ * これにより、発言者が変わっても system と履歴の大部分をキャッシュできる。
+ */
 export function buildTurnMessages(params: {
   currentPersona: { id: string; name: string; role: string; personality: string; speakingStyle: string };
   allPersonas: { id: string; name: string; role: string }[];
@@ -45,6 +53,8 @@ export function buildTurnMessages(params: {
 }): ChatMessage[] {
   const { currentPersona, allPersonas, articleTitle, articleSummary, pastMemories, history, turnIndex, totalTurns } =
     params;
+
+  const cast = allPersonas.map((p) => `- ${p.name}（${p.role}）`).join("\n");
 
   const otherNames = allPersonas
     .filter((p) => p.id !== currentPersona.id)
@@ -65,37 +75,37 @@ export function buildTurnMessages(params: {
           .join("\n\n")
       : "なし";
 
-  const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: renderPrompt(dialogueSpeaker, {
-        name: currentPersona.name,
-        role: currentPersona.role,
-        otherNames,
-        personality: currentPersona.personality,
-        speakingStyle: currentPersona.speakingStyle,
-        articleTitle,
-        articleSummary,
-        memoryContext,
-      }),
-    },
-  ];
+  const speaker = renderPrompt(dialogueSpeaker, {
+    name: currentPersona.name,
+    role: currentPersona.role,
+    otherNames,
+    personality: currentPersona.personality,
+    speakingStyle: currentPersona.speakingStyle,
+  });
+
+  const system: ChatMessage = {
+    role: "system",
+    content: renderPrompt(dialogueSystem, { cast, articleTitle, articleSummary, memoryContext }),
+  };
 
   if (params.isFirstSpeaker) {
-    messages.push({ role: "user", content: renderPrompt(dialogueOpening, { articleTitle }) });
-  } else {
-    const isLastTurn = turnIndex === totalTurns - 1;
-    messages.push({
+    return [system, { role: "user", content: renderPrompt(dialogueOpening, { speaker, articleTitle }) }];
+  }
+
+  const isLastTurn = turnIndex === totalTurns - 1;
+  return [
+    system,
+    {
       role: "user",
       content: renderPrompt(dialogueTurn, {
         history: history.map((h) => `${h.personaName}: 「${h.text}」`).join("\n\n"),
+        speaker,
         instruction: isLastTurn
           ? renderPrompt(dialogueInstructionFinal)
           : renderPrompt(dialogueInstructionReply, { lengthHint: LENGTH_HINTS[turnIndex % LENGTH_HINTS.length] }),
       }),
-    });
-  }
-  return messages;
+    },
+  ];
 }
 
 /** 対談終了後の記憶定着: 論点の要約と印象的な発言をJSONで抽出させる */
