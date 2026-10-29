@@ -209,6 +209,24 @@ function SessionPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
+      <nav className="flex items-center gap-2 text-xs text-zinc-400" aria-label="パンくず">
+        <Link to="/" className="hover:text-zinc-200">
+          対談一覧
+        </Link>
+        {session.genre && (
+          <>
+            <span aria-hidden>/</span>
+            <Link
+              to="/"
+              search={{ genre: session.genre }}
+              className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-indigo-200 hover:bg-indigo-500/25"
+            >
+              {session.genre}
+            </Link>
+          </>
+        )}
+      </nav>
+
       <OgpCard
         url={session.sourceUrl}
         title={session.articleTitle}

@@ -11,14 +11,6 @@ export interface Ogp {
   type: string | null;
 }
 
-export interface UrlPreview {
-  normalizedUrl: string;
-  existingSessionId: string | null;
-  title: string;
-  summary: string;
-  ogp: Ogp | null;
-}
-
 export interface SessionSummary {
   id: string;
   sourceUrl: string;
@@ -26,9 +18,29 @@ export interface SessionSummary {
   articleTitle: string;
   articleSummary: string;
   summary: string | null;
+  genre: string | null;
   ogp: Ogp | null;
   personaIds: string[];
   createdAt: string;
+}
+
+export interface Participant {
+  id: string;
+  name: string;
+  avatar: string;
+  avatarUrl: string | null;
+  themeColor: string;
+}
+
+/** 一覧用: ジャンルと参加ペルソナ付き */
+export interface SessionListItem extends SessionSummary {
+  genre: string;
+  participants: Participant[];
+}
+
+export interface GenreCount {
+  genre: string;
+  count: number;
 }
 
 export interface PastMemory {

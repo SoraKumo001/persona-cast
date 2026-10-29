@@ -1,7 +1,7 @@
 import { Env } from "../types";
 
 /** テンプレートを変えたらインクリメントし、R2のキャッシュを無効化する */
-const TEMPLATE_VERSION = "v1";
+const TEMPLATE_VERSION = "v2";
 
 export interface OgpPersona {
   id: string;
@@ -22,6 +22,7 @@ export interface OgpImageData {
   summary: string;
   sourceUrl: string;
   siteName?: string | null;
+  genre?: string | null;
   participantCount: number;
   messageCount: number;
   quotes: OgpQuote[];
@@ -99,7 +100,10 @@ export function buildOgpHtml(d: OgpImageData): string {
   return `<div style="width:1200px;height:630px;box-sizing:border-box;padding:44px 56px;display:flex;flex-direction:column;justify-content:space-between;background:linear-gradient(135deg,#0b1020 0%,#1e1b4b 100%);color:#ffffff;font-family:'Noto Sans JP',sans-serif;">
   <div style="display:flex;justify-content:space-between;align-items:center;font-size:22px;color:#a5b4fc;">
     <div style="font-weight:700;">🎙️ Persona-Cast</div>
-    <div style="color:#94a3b8;">${site}</div>
+    <div style="display:flex;align-items:center;gap:16px;color:#94a3b8;">
+      ${d.genre ? `<div style="background:#6366f133;color:#c7d2fe;border-radius:999px;padding:4px 18px;font-size:20px;">${escapeHtml(d.genre)}</div>` : ""}
+      <div>${site}</div>
+    </div>
   </div>
   <div>
     <div style="font-size:46px;font-weight:700;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(d.title)}</div>
@@ -131,7 +135,7 @@ async function loadAvatarDataUri(env: Env, key: string | null | undefined): Prom
 /** 対談セッションのOGP画像(PNG)を返す。内容(発言数)ごとにR2へキャッシュする */
 export async function getSessionOgpImage(env: Env, sessionId: string): Promise<Uint8Array | null> {
   const session: any = await env.DB.prepare(
-    "SELECT id, source_url, article_title, article_summary, summary, og_json, persona_ids FROM sessions WHERE id = ?"
+    "SELECT id, source_url, article_title, article_summary, summary, genre, og_json, persona_ids FROM sessions WHERE id = ?"
   )
     .bind(sessionId)
     .first();
@@ -185,6 +189,7 @@ export async function getSessionOgpImage(env: Env, sessionId: string): Promise<U
     summary: session.summary || session.article_summary.slice(0, 120),
     sourceUrl: session.source_url,
     siteName: ogp?.siteName,
+    genre: session.genre,
     participantCount: personaIds.length,
     messageCount: messages.length,
     quotes,

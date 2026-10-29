@@ -3,7 +3,9 @@ import { streamSSE } from "hono/streaming";
 import { Env } from "../types";
 import { scrapeUrl, ScrapeError } from "../services/scraper";
 import { normalizeUrl } from "../services/url-normalize";
-import { extractiveSummary, summarizeArticle } from "../services/summary";
+import { analyzeArticle, defaultTurns, PersonaCandidate } from "../services/analyze";
+import { DEFAULT_GENRE, isGenre } from "../services/genres";
+import { toPersona, PERSONA_COLUMNS } from "../services/persona-store";
 import { searchSimilarMemories } from "../services/memory";
 import { orchestrateDialogue } from "../services/dialogue";
 import { getSessionOgpImage } from "../services/ogp-image";
@@ -12,7 +14,7 @@ import { ensureDatabaseTables } from "../presets";
 const app = new Hono<{ Bindings: Env }>();
 
 const SESSION_COLUMNS =
-  "id, source_url as sourceUrl, normalized_url as normalizedUrl, article_title as articleTitle, article_summary as articleSummary, summary, og_json as ogJson, persona_ids as personaIds, created_at as createdAt";
+  "id, source_url as sourceUrl, normalized_url as normalizedUrl, article_title as articleTitle, article_summary as articleSummary, summary, genre, og_json as ogJson, persona_ids as personaIds, created_at as createdAt";
 
 function toSession(row: any) {
   const { ogJson, ...rest } = row;
@@ -32,63 +34,56 @@ async function findSessionByNormalizedUrl(db: D1Database, normalizedUrl: string)
     .first();
 }
 
-// URLプレビュー: OGP・短い要約・既存対談の有無 (LLMは呼ばない)
-app.post("/preview", async (c) => {
-  if (c.env.DB) await ensureDatabaseTables(c.env.DB);
-  const { url } = await c.req.json<{ url?: string }>();
-  if (!url) return c.json({ error: "URLは必須です" }, 400);
+// 対談の一覧。genre で絞り込み、ジャンル別の件数も返す (発言が1件以上ある対談のみ)
+const HAS_MESSAGES = "EXISTS (SELECT 1 FROM messages m WHERE m.session_id = sessions.id)";
 
-  let normalizedUrl: string;
-  try {
-    normalizedUrl = normalizeUrl(url);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-
-  const existing: any = await findSessionByNormalizedUrl(c.env.DB, normalizedUrl);
-  if (existing) {
-    const s = toSession(existing);
-    return c.json({
-      normalizedUrl,
-      existingSessionId: s.id,
-      title: s.articleTitle,
-      summary: s.summary || extractiveSummary(s.articleSummary, s.ogp ?? emptyOgp()),
-      ogp: s.ogp,
-    });
-  }
-
-  try {
-    const article = await scrapeUrl(url);
-    const dup: any = article.normalizedUrl !== normalizedUrl
-      ? await findSessionByNormalizedUrl(c.env.DB, article.normalizedUrl)
-      : null;
-    return c.json({
-      normalizedUrl: article.normalizedUrl,
-      existingSessionId: dup?.id ?? null,
-      title: article.title,
-      summary: extractiveSummary(article.content, article.ogp),
-      ogp: article.ogp,
-    });
-  } catch (err: any) {
-    const status = err instanceof ScrapeError ? 400 : 502;
-    return c.json({ error: `記事の取得に失敗しました: ${err.message}` }, status);
-  }
-});
-
-function emptyOgp() {
-  return { title: null, description: null, image: null, siteName: null, favicon: null, type: null };
-}
-
-// セッション一覧取得
 app.get("/", async (c) => {
   if (c.env.DB) await ensureDatabaseTables(c.env.DB);
+  const genre = c.req.query("genre");
+  const limit = Math.min(Math.max(parseInt(c.req.query("limit") || "48", 10) || 48, 1), 100);
+
   try {
+    const where = genre && isGenre(genre) ? `WHERE ${HAS_MESSAGES} AND genre = ?` : `WHERE ${HAS_MESSAGES}`;
+    const binds = genre && isGenre(genre) ? [genre, limit] : [limit];
     const { results } = await c.env.DB.prepare(
-      `SELECT ${SESSION_COLUMNS} FROM sessions ORDER BY created_at DESC LIMIT 30`
-    ).all();
-    return c.json({ sessions: results.map(toSession) });
+      `SELECT ${SESSION_COLUMNS} FROM sessions ${where} ORDER BY created_at DESC LIMIT ?`
+    )
+      .bind(...binds)
+      .all();
+    const sessions = results.map(toSession);
+
+    // カードに出す参加ペルソナを、まとめて1回で取得する
+    const ids = [...new Set(sessions.flatMap((s: any) => s.personaIds as string[]))];
+    const personaMap = new Map<string, any>();
+    if (ids.length > 0) {
+      const { results: rows } = await c.env.DB.prepare(
+        `SELECT ${PERSONA_COLUMNS} FROM personas WHERE id IN (${ids.map(() => "?").join(",")})`
+      )
+        .bind(...ids)
+        .all();
+      for (const r of rows) {
+        const p = toPersona(r);
+        personaMap.set(p.id, { id: p.id, name: p.name, avatar: p.avatar, avatarUrl: p.avatarUrl, themeColor: p.themeColor });
+      }
+    }
+
+    const { results: genres } = await c.env.DB.prepare(
+      `SELECT COALESCE(genre, ?) as genre, COUNT(*) as count FROM sessions WHERE ${HAS_MESSAGES} GROUP BY 1 ORDER BY count DESC, genre ASC`
+    )
+      .bind(DEFAULT_GENRE)
+      .all();
+
+    return c.json({
+      sessions: sessions.map((s: any) => ({
+        ...s,
+        genre: s.genre ?? DEFAULT_GENRE,
+        participants: s.personaIds.map((id: string) => personaMap.get(id)).filter(Boolean),
+      })),
+      genres,
+    });
   } catch (err) {
-    return c.json({ sessions: [] });
+    console.error("Failed to list sessions:", err);
+    return c.json({ sessions: [], genres: [] });
   }
 });
 
@@ -145,21 +140,13 @@ app.get("/:id/ogp.png", async (c) => {
   }
 });
 
-// 新規対談セッション作成 (URL正規化・既存対談の再利用・URL抽出・記憶照会)
+// 新規対談セッション作成: 入力はURLだけ。要約・ジャンル・参加ペルソナ・発言数は自動で決める
 app.post("/", async (c) => {
   if (c.env.DB) await ensureDatabaseTables(c.env.DB);
-  const body = await c.req.json<{
-    url: string;
-    personaIds: string[];
-    totalTurns?: number;
-    modelName?: string;
-  }>();
+  const body = await c.req.json<{ url?: string }>().catch(() => ({}) as { url?: string });
 
   if (!body.url) {
     return c.json({ error: "URLは必須です" }, 400);
-  }
-  if (!body.personaIds || body.personaIds.length === 0) {
-    return c.json({ error: "少なくとも1人以上のペルソナを選択してください" }, 400);
   }
 
   let normalizedUrl: string;
@@ -170,17 +157,13 @@ app.post("/", async (c) => {
   }
 
   // 1. 同じページの対談が既にあれば取得せずそれを返す
-  const existingResponse = async (row: any) => {
+  const existingResponse = (row: any) => {
     const s = toSession(row);
     return c.json({
       existing: true,
       sessionId: s.id,
+      genre: s.genre ?? DEFAULT_GENRE,
       articleTitle: s.articleTitle,
-      articleSummary: s.summary ?? s.articleSummary.slice(0, 200),
-      sourceUrl: s.sourceUrl,
-      ogp: s.ogp,
-      personaIds: s.personaIds,
-      pastMemories: [],
     });
   };
   const existing = await findSessionByNormalizedUrl(c.env.DB, normalizedUrl);
@@ -201,19 +184,27 @@ app.post("/", async (c) => {
     if (dup) return existingResponse(dup);
   }
 
+  const { results: candidates } = await c.env.DB.prepare(
+    "SELECT id, name, role, personality FROM personas WHERE archived_at IS NULL ORDER BY created_at ASC"
+  ).all<PersonaCandidate>();
+  if (candidates.length === 0) {
+    return c.json({ error: "対談に参加できるペルソナがいません。管理画面でペルソナを追加してください" }, 409);
+  }
+
   const sessionId = `ses_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const now = new Date().toISOString();
 
-  // 3. 短い要約の生成と、過去の類似対談記憶の検索 (Workers AI Embedding + Vectorize/D1)
-  const [summary, pastMemories] = await Promise.all([
-    summarizeArticle(c.env, sessionId, article),
-    searchSimilarMemories(`${article.title}\n${article.content.slice(0, 300)}`, c.env, 3, 0.45),
+  // 3. 要約・ジャンル・参加ペルソナの決定と、過去の類似対談記憶の検索
+  const [analysis, pastMemories] = await Promise.all([
+    analyzeArticle(c.env, sessionId, article, candidates),
+    searchSimilarMemories(`${article.title}
+${article.content.slice(0, 300)}`, c.env, 3, 0.45),
   ]);
 
   // 4. セッションをD1に保存
   await c.env.DB.prepare(
-    `INSERT INTO sessions (id, source_url, normalized_url, article_title, article_summary, summary, og_json, persona_ids, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO sessions (id, source_url, normalized_url, article_title, article_summary, summary, genre, og_json, persona_ids, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       sessionId,
@@ -221,9 +212,10 @@ app.post("/", async (c) => {
       article.normalizedUrl,
       article.title,
       article.content.slice(0, 3000), // 長すぎないよう保存
-      summary,
+      analysis.summary,
+      analysis.genre,
       JSON.stringify(article.ogp),
-      JSON.stringify(body.personaIds),
+      JSON.stringify(analysis.personaIds),
       now
     )
     .run();
@@ -231,11 +223,9 @@ app.post("/", async (c) => {
   return c.json({
     existing: false,
     sessionId,
+    genre: analysis.genre,
     articleTitle: article.title,
-    articleSummary: summary,
-    sourceUrl: article.url,
-    ogp: article.ogp,
-    personaIds: body.personaIds,
+    totalTurns: defaultTurns(analysis.personaIds.length),
     pastMemories: pastMemories.map((m) => ({
       sessionId: m.sessionId,
       articleTitle: m.articleTitle,
@@ -258,6 +248,12 @@ app.get("/:id/stream", async (c) => {
           event: event.type,
           data: JSON.stringify(event.data),
         });
+      }
+      // 一覧のサムネイル用に、対談の完了後にOGP画像を先に生成してキャッシュしておく
+      try {
+        c.executionCtx.waitUntil(getSessionOgpImage(c.env, sessionId).catch((e) => console.warn("OGP prewarm failed:", e)));
+      } catch {
+        // executionCtx がない環境では、初回リクエスト時に生成される
       }
     } catch (err: any) {
       await stream.writeSSE({

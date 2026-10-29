@@ -21,8 +21,8 @@ export const Route = createRootRoute({
 });
 
 const NAV = [
-  { to: "/", label: "新しい対談" },
-  { to: "/history", label: "履歴・記憶" },
+  { to: "/", label: "対談" },
+  { to: "/memories", label: "記憶検索" },
   { to: "/admin/personas", label: "ペルソナ管理" },
 ] as const;
 

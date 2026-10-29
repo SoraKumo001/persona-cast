@@ -10,7 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as HistoryRouteImport } from './routes/history'
+import { Route as MemoriesRouteImport } from './routes/memories'
 import { Route as AdminPersonasRouteImport } from './routes/admin.personas'
 import { Route as SIdRouteImport } from './routes/s.$id'
 
@@ -19,9 +19,9 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const HistoryRoute = HistoryRouteImport.update({
-  id: '/history',
-  path: '/history',
+const MemoriesRoute = MemoriesRouteImport.update({
+  id: '/memories',
+  path: '/memories',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminPersonasRoute = AdminPersonasRouteImport.update({
@@ -37,34 +37,34 @@ const SIdRoute = SIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/history': typeof HistoryRoute
+  '/memories': typeof MemoriesRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/s/$id': typeof SIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/history': typeof HistoryRoute
+  '/memories': typeof MemoriesRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/s/$id': typeof SIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/history': typeof HistoryRoute
+  '/memories': typeof MemoriesRoute
   '/admin/personas': typeof AdminPersonasRoute
   '/s/$id': typeof SIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/history' | '/admin/personas' | '/s/$id'
+  fullPaths: '/' | '/memories' | '/admin/personas' | '/s/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/history' | '/admin/personas' | '/s/$id'
-  id: '__root__' | '/' | '/history' | '/admin/personas' | '/s/$id'
+  to: '/' | '/memories' | '/admin/personas' | '/s/$id'
+  id: '__root__' | '/' | '/memories' | '/admin/personas' | '/s/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  HistoryRoute: typeof HistoryRoute
+  MemoriesRoute: typeof MemoriesRoute
   AdminPersonasRoute: typeof AdminPersonasRoute
   SIdRoute: typeof SIdRoute
 }
@@ -78,11 +78,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/history': {
-      id: '/history'
-      path: '/history'
-      fullPath: '/history'
-      preLoaderRoute: typeof HistoryRouteImport
+    '/memories': {
+      id: '/memories'
+      path: '/memories'
+      fullPath: '/memories'
+      preLoaderRoute: typeof MemoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/personas': {
@@ -104,7 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  HistoryRoute: HistoryRoute,
+  MemoriesRoute: MemoriesRoute,
   AdminPersonasRoute: AdminPersonasRoute,
   SIdRoute: SIdRoute,
 }

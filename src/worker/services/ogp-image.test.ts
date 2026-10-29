@@ -59,6 +59,11 @@ describe("buildOgpHtml", () => {
     expect(html).toContain("2人が6発言で対談");
   });
 
+  test("ジャンルをバッジで表示し、エスケープする", () => {
+    expect(buildOgpHtml({ ...base, genre: "AI・機械学習" })).toContain("AI・機械学習");
+    expect(buildOgpHtml({ ...base, genre: "<i>x</i>" })).not.toContain("<i>x</i>");
+  });
+
   test("不正なテーマ色はデフォルト色に置き換える", () => {
     const html = buildOgpHtml({ ...base, quotes: [{ persona: { ...persona, themeColor: "red;}</div>" }, text: "x" }] });
     expect(html).not.toContain("red;}");
