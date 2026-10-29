@@ -11,6 +11,7 @@ export interface VectorizeMatch {
 
 /** Vectorize のうち、使っている部分だけの型 (類似検索と登録) */
 export interface VectorizeBinding {
+  deleteByIds: (ids: string[]) => Promise<unknown>;
   query: (
     vector: number[],
     options: { topK: number; returnMetadata?: "all" | "indexed" | "none" }

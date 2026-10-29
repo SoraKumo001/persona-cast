@@ -46,7 +46,7 @@ const KEYWORDS: [Genre, RegExp][] = [
   ],
   [
     "エンタメ・カルチャー",
-    /\b(movie|film|music|anime|game|gaming|netflix|youtube|celebrity)\b|映画|音楽|アニメ|ゲーム|漫画|芸能|ドラマ|小説|アート/iu,
+    /\b(movie|film|music|anime|game|gaming|netflix|youtube|celebrity)\b|映画|音楽|アニメ(?!ーション)|ゲーム|漫画|芸能|ドラマ|小説|アート/iu,
   ],
   [
     "ライフスタイル",

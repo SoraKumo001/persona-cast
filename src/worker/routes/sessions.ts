@@ -7,11 +7,12 @@ import { clampInt, rateLimit } from "../middleware/rate-limit";
 import { ensureDatabaseTables } from "../presets";
 import { ADULT_MESSAGE, isAdultHost } from "../services/adult-filter";
 import { trackEvent } from "../services/analytics-track";
-import { analyzeArticle, defaultTurns, type PersonaCandidate } from "../services/analyze";
+import { analyzeArticle, defaultTurns } from "../services/analyze";
 import { orchestrateDialogue } from "../services/dialogue";
 import { DEFAULT_GENRE } from "../services/genres";
 import { searchSimilarMemories } from "../services/memory";
 import { getSessionOgpImage } from "../services/ogp-image";
+import { listPersonaCandidates } from "../services/persona-store";
 import { ScrapeError, scrapeUrl } from "../services/scraper";
 import { getSessionDetail, listSessions, PAGE_SIZE, SESSION_COLUMNS, toSession } from "../services/session-queries";
 import { countTodaySessions, getDailyLimit } from "../services/settings";
@@ -166,11 +167,7 @@ app.post("/", async (c) => {
     }
   }
 
-  const { results: candidates } = await c.env.DB.prepare(
-    `SELECT id, name, role, personality,
-            (SELECT COUNT(*) FROM sessions s WHERE s.persona_ids LIKE '%"' || personas.id || '"%') AS appearances
-     FROM personas WHERE archived_at IS NULL ORDER BY created_at ASC`
-  ).all<PersonaCandidate>();
+  const candidates = await listPersonaCandidates(c.env.DB);
   if (candidates.length === 0) {
     return c.json({ error: "対談に参加できるペルソナがいません。管理画面でペルソナを追加してください" }, 409);
   }

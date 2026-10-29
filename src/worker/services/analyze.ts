@@ -8,6 +8,8 @@ import type { OgpInfo } from "./scraper";
 const SUMMARY_MAX_CHARS = 200;
 const MIN_PERSONAS = 3;
 const MAX_PERSONAS = 4;
+/** 分析の LLM 呼び出しを試す回数 (1回目が失敗・不完全だったときに、1回だけやり直す) */
+const ANALYZE_ATTEMPTS = 2;
 
 export interface PersonaCandidate {
   /** これまでに出演した対談の数 (偏りを避けるため選定に使う) */
@@ -46,16 +48,56 @@ function hash(s: string): number {
   return Math.abs(h);
 }
 
-/** URLから決まる順序でペルソナを選ぶ (同じ記事なら同じ顔ぶれ、記事ごとにばらける) */
-export function fallbackPersonas(candidates: PersonaCandidate[], seed: string, count = MIN_PERSONAS): string[] {
-  if (candidates.length === 0) {
+/** 技術系のジャンルで、その分野に詳しそうなペルソナを見分ける手がかり (役割・性格の文) */
+const TECH_HINT = /エンジニア|技術|開発|プログラ|システム|セキュリティ|リサーチャー|アナリスト|研究|サイエンティスト/u;
+const GENRE_HINTS: Partial<Record<Genre, RegExp>> = {
+  "プログラミング・開発": TECH_HINT,
+  "AI・機械学習": TECH_HINT,
+  "テクノロジー・ガジェット": TECH_HINT,
+  サイエンス: TECH_HINT,
+};
+
+/** seed から決まる位置を起点に並べ替える (同じ記事なら同じ順、記事ごとにばらける) */
+function rotate<T>(items: T[], seed: string): T[] {
+  if (items.length === 0) {
     return [];
   }
-  const start = hash(seed) % candidates.length;
-  return Array.from(
-    { length: Math.min(count, candidates.length) },
-    (_, i) => candidates[(start + i) % candidates.length].id
+  const start = hash(seed) % items.length;
+  return [...items.slice(start), ...items.slice(0, start)];
+}
+
+/**
+ * URLから決まる順序でペルソナを選ぶ (同じ記事なら同じ顔ぶれ、記事ごとにばらける)。
+ * ジャンルが技術系なら、その分野に詳しそうな役割 (エンジニアなど) を優先して入れる。
+ * ただし議論に幅が出るよう、候補が足りれば1人は別の持ち味のペルソナにする
+ */
+export function fallbackPersonas(
+  candidates: PersonaCandidate[],
+  seed: string,
+  count = MIN_PERSONAS,
+  genre?: Genre
+): string[] {
+  const size = Math.min(count, candidates.length);
+  const hint = genre ? GENRE_HINTS[genre] : undefined;
+  const matched = hint ? candidates.filter((c) => hint.test(`${c.role} ${c.personality}`)) : [];
+  if (matched.length === 0) {
+    return rotate(candidates, seed)
+      .slice(0, size)
+      .map((c) => c.id);
+  }
+  const rotatedMatched = rotate(matched, seed);
+  const others = rotate(
+    candidates.filter((c) => !matched.includes(c)),
+    seed
   );
+  const picked = [...rotatedMatched.slice(0, Math.max(size - 1, 1)), ...others];
+  // 別の持ち味のペルソナが足りないときは、残りも該当する側から補う
+  for (const c of rotatedMatched) {
+    if (!picked.includes(c)) {
+      picked.push(c);
+    }
+  }
+  return picked.slice(0, size).map((c) => c.id);
 }
 
 /** LLMの出力から JSON を取り出し、ジャンル・ペルソナIDを検証して返す。不正な項目は捨てる */
@@ -98,12 +140,17 @@ export function parseAnalysis(
 }
 
 /** 参加者が足りなければ補い、候補が複数あるのに1人だけにならないようにする */
-function completePersonas(chosen: string[] | undefined, candidates: PersonaCandidate[], seed: string): string[] {
+function completePersonas(
+  chosen: string[] | undefined,
+  candidates: PersonaCandidate[],
+  seed: string,
+  genre: Genre
+): string[] {
   const ids = [...(chosen ?? [])];
   if (ids.length >= Math.min(MIN_PERSONAS, candidates.length)) {
     return ids;
   }
-  for (const id of fallbackPersonas(candidates, seed, MAX_PERSONAS)) {
+  for (const id of fallbackPersonas(candidates, seed, MAX_PERSONAS, genre)) {
     if (!ids.includes(id)) {
       ids.push(id);
     }
@@ -122,15 +169,17 @@ export async function analyzeArticle(
   env: Env,
   sessionId: string,
   article: { title: string; content: string; ogp: OgpInfo; normalizedUrl: string },
-  candidates: PersonaCandidate[]
+  candidates: PersonaCandidate[],
+  complete: typeof generateChatCompletion = generateChatCompletion
 ): Promise<Analysis> {
   const adultByKeywords = looksAdult(
     `${article.title}\n${article.ogp.description ?? ""}\n${article.content.slice(0, 3000)}`
   );
+  const guessedGenre = guessGenre(`${article.title}\n${article.content.slice(0, 1500)}`);
   const fallback: Analysis = {
     summary: extractiveSummary(article.content, article.ogp),
-    genre: guessGenre(`${article.title}\n${article.content.slice(0, 1500)}`),
-    personaIds: fallbackPersonas(candidates, article.normalizedUrl),
+    genre: guessedGenre,
+    personaIds: fallbackPersonas(candidates, article.normalizedUrl, MIN_PERSONAS, guessedGenre),
     adult: adultByKeywords,
   };
 
@@ -140,33 +189,44 @@ export async function analyzeArticle(
     return fallback;
   }
 
-  try {
-    // 先頭の候補に偏らないよう、URLごとに候補の並びを回転させる
-    const offset = hash(article.normalizedUrl) % candidates.length;
-    const rotated = [...candidates.slice(offset), ...candidates.slice(0, offset)];
-    const text = await generateChatCompletion(
-      buildAnalyzeMessages({
-        title: article.title,
-        content: article.content,
-        genres: GENRES,
-        minPersonas: MIN_PERSONAS,
-        maxPersonas: MAX_PERSONAS,
-        candidates: rotated,
-      }),
-      env,
-      sessionId
-    );
+  // 先頭の候補に偏らないよう、URLごとに候補の並びを回転させる
+  const offset = hash(article.normalizedUrl) % candidates.length;
+  const rotated = [...candidates.slice(offset), ...candidates.slice(0, offset)];
+  const messages = buildAnalyzeMessages({
+    title: article.title,
+    content: article.content,
+    genres: GENRES,
+    minPersonas: MIN_PERSONAS,
+    maxPersonas: MAX_PERSONAS,
+    candidates: rotated,
+  });
 
-    const parsed = parseAnalysis(text, candidates);
-    return {
-      summary: parsed.summary ?? fallback.summary,
-      genre: parsed.genre ?? fallback.genre,
-      personaIds: completePersonas(parsed.personaIds, candidates, article.normalizedUrl),
-      // LLM が false でも、強い語が複数あれば成人向けとして扱う
-      adult: (parsed.adult ?? false) || adultByKeywords,
-    };
-  } catch (err) {
-    console.warn("analyzeArticle failed, using fallback:", err);
-    return fallback;
+  // 通信の失敗や、JSON として読めない・項目が欠けた応答は、1回だけやり直す。失敗の理由はログに残す
+  let parsed: ReturnType<typeof parseAnalysis> = {};
+  for (let attempt = 1; attempt <= ANALYZE_ATTEMPTS; attempt++) {
+    try {
+      const text = await complete(messages, env, sessionId);
+      parsed = parseAnalysis(text, candidates);
+      if (parsed.summary && parsed.genre && parsed.personaIds) {
+        break;
+      }
+      console.warn(
+        `analyzeArticle: incomplete response (attempt ${attempt}/${ANALYZE_ATTEMPTS}) session=${sessionId} ` +
+          `has summary=${!!parsed.summary} genre=${!!parsed.genre} personaIds=${!!parsed.personaIds} ` +
+          `head=${JSON.stringify(text.slice(0, 200))}`
+      );
+    } catch (err) {
+      console.warn(`analyzeArticle: call failed (attempt ${attempt}/${ANALYZE_ATTEMPTS}) session=${sessionId}:`, err);
+    }
   }
+
+  // 取れた項目は使い、欠けた項目だけキーワードによる簡易な判定で補う
+  const genre = parsed.genre ?? fallback.genre;
+  return {
+    summary: parsed.summary ?? fallback.summary,
+    genre,
+    personaIds: completePersonas(parsed.personaIds, candidates, article.normalizedUrl, genre),
+    // LLM が false でも、強い語が複数あれば成人向けとして扱う
+    adult: (parsed.adult ?? false) || adultByKeywords,
+  };
 }

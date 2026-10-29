@@ -1,5 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { EyeOff, Loader2, RotateCcw, Search } from "lucide-react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { EyeOff, Loader2, RefreshCw, RotateCcw, Search } from "lucide-react";
 import React from "react";
 import { ApiError, api, errorMessage, formatDateTime, hostOf } from "../client/lib/api";
 
@@ -26,6 +26,7 @@ interface SessionPage {
 
 /** 公開中の対談を、後から非表示にする (削除はしない。復元できる) */
 function AdminSessionsPage() {
+  const navigate = useNavigate();
   const [data, setData] = React.useState<SessionPage | null>(null);
   const [query, setQuery] = React.useState("");
   const [applied, setApplied] = React.useState("");
@@ -58,12 +59,15 @@ function AdminSessionsPage() {
     load();
   }, [load]);
 
-  const toggle = async (s: AdminSession) => {
+  const act = async (s: AdminSession, action: Action) => {
     setBusyId(s.id);
     try {
-      await api(`/api/admin/sessions/${encodeURIComponent(s.id)}/${s.hiddenAt ? "restore" : "hide"}`, {
-        method: "POST",
-      });
+      await api(`/api/admin/sessions/${encodeURIComponent(s.id)}/${action}`, { method: "POST" });
+      if (action === "regenerate") {
+        // 未生成に戻った対談のページを開くと、生成が始まる
+        await navigate({ to: "/s/$id", params: { id: s.id } });
+        return;
+      }
       await load();
     } catch (err) {
       setError(errorMessage(err));
@@ -137,7 +141,7 @@ function AdminSessionsPage() {
           <p className="text-xs text-zinc-500">{data.total} 件</p>
           <ul className="divide-y divide-zinc-800 rounded-2xl border border-zinc-800">
             {data.sessions.map((s) => (
-              <SessionItem busy={busyId === s.id} key={s.id} onToggle={() => toggle(s)} session={s} />
+              <SessionItem busy={busyId === s.id} key={s.id} onAction={(a) => act(s, a)} session={s} />
             ))}
             {data.sessions.length === 0 && <li className="px-4 py-8 text-center text-sm text-zinc-500">該当なし</li>}
           </ul>
@@ -170,6 +174,16 @@ function AdminSessionsPage() {
   );
 }
 
+type Action = "hide" | "restore" | "regenerate";
+
+const CONFIRM: Record<"hide" | "regenerate", { label: string; note: string }> = {
+  hide: { label: "非表示にする", note: "公開をやめます (あとで再公開できます)" },
+  regenerate: {
+    label: "再生成する",
+    note: "発言と記憶を消し、要約・ジャンル・参加者を取り直して作り直します (元に戻せません)",
+  },
+};
+
 function statusNote(s: AdminSession): string {
   if (s.hiddenAt) {
     return " ・ 非表示";
@@ -177,20 +191,74 @@ function statusNote(s: AdminSession): string {
   return s.messageCount === 0 ? " ・ 未生成" : "";
 }
 
-function ToggleIcon({ busy, hidden }: { busy: boolean; hidden: boolean }) {
-  if (busy) {
-    return <Loader2 className="h-3.5 w-3.5 animate-spin" />;
-  }
-  return hidden ? <RotateCcw className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />;
+function RowIcon({ busy, icon: Icon }: { busy: boolean; icon: typeof EyeOff }) {
+  return busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />;
 }
 
-/** 1件分の行。非表示にする前は、同じ行の中で確認を取る */
-function SessionItem({ session: s, busy, onToggle }: { session: AdminSession; busy: boolean; onToggle: () => void }) {
-  const [confirming, setConfirming] = React.useState(false);
+/** 1件分の行。非表示・再生成の前は、同じ行の中で確認を取る */
+function SessionItem({
+  session: s,
+  busy,
+  onAction,
+}: {
+  session: AdminSession;
+  busy: boolean;
+  onAction: (action: Action) => void;
+}) {
+  const [confirming, setConfirming] = React.useState<"hide" | "regenerate" | null>(null);
   const button = "inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs disabled:opacity-40";
+  const idle = `${button} border-zinc-700 text-zinc-200 hover:bg-zinc-800`;
+
+  let actions: React.ReactNode;
+  if (confirming) {
+    actions = (
+      <>
+        <button
+          className={`${button} border-red-500/60 text-red-200 hover:bg-red-500/10`}
+          disabled={busy}
+          onClick={() => {
+            setConfirming(null);
+            onAction(confirming);
+          }}
+          type="button"
+        >
+          {CONFIRM[confirming].label}
+        </button>
+        <button
+          className={`${button} border-zinc-700 text-zinc-300 hover:bg-zinc-800`}
+          onClick={() => setConfirming(null)}
+          type="button"
+        >
+          やめる
+        </button>
+      </>
+    );
+  } else if (s.hiddenAt) {
+    actions = (
+      <button className={idle} disabled={busy} onClick={() => onAction("restore")} type="button">
+        <RowIcon busy={busy} icon={RotateCcw} />
+        再公開
+      </button>
+    );
+  } else {
+    actions = (
+      <>
+        {s.messageCount > 0 && (
+          <button className={idle} disabled={busy} onClick={() => setConfirming("regenerate")} type="button">
+            <RowIcon busy={busy} icon={RefreshCw} />
+            再生成
+          </button>
+        )}
+        <button className={idle} disabled={busy} onClick={() => setConfirming("hide")} type="button">
+          <RowIcon busy={busy} icon={EyeOff} />
+          非表示
+        </button>
+      </>
+    );
+  }
 
   return (
-    <li className={`flex items-center gap-3 px-4 py-3 ${s.hiddenAt ? "opacity-60" : ""}`}>
+    <li className={`flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 ${s.hiddenAt ? "opacity-60" : ""}`}>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-zinc-50">
           {s.hiddenAt || s.messageCount === 0 ? (
@@ -205,39 +273,9 @@ function SessionItem({ session: s, busy, onToggle }: { session: AdminSession; bu
           {hostOf(s.sourceUrl)} ・ {s.genre ?? "その他"} ・ 発言 {s.messageCount} ・ {formatDateTime(s.createdAt)}
           {statusNote(s)}
         </p>
+        {confirming ? <p className="mt-1 text-xs text-red-300">{CONFIRM[confirming].note}</p> : null}
       </div>
-      {confirming ? (
-        <>
-          <button
-            className={`${button} border-red-500/60 text-red-200 hover:bg-red-500/10`}
-            disabled={busy}
-            onClick={() => {
-              setConfirming(false);
-              onToggle();
-            }}
-            type="button"
-          >
-            非表示にする
-          </button>
-          <button
-            className={`${button} border-zinc-700 text-zinc-300 hover:bg-zinc-800`}
-            onClick={() => setConfirming(false)}
-            type="button"
-          >
-            やめる
-          </button>
-        </>
-      ) : (
-        <button
-          className={`${button} border-zinc-700 text-zinc-200 hover:bg-zinc-800`}
-          disabled={busy}
-          onClick={s.hiddenAt ? onToggle : () => setConfirming(true)}
-          type="button"
-        >
-          <ToggleIcon busy={busy} hidden={Boolean(s.hiddenAt)} />
-          {s.hiddenAt ? "再公開" : "非表示"}
-        </button>
-      )}
+      {actions}
     </li>
   );
 }

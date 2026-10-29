@@ -1,8 +1,10 @@
 import { type Context, Hono } from "hono";
 import { purgeSessionCache } from "../cache";
+import { errorMessage } from "../errors";
 import { requireAccess } from "../middleware/access";
 import { clampInt } from "../middleware/rate-limit";
 import { ensureDatabaseTables } from "../presets";
+import { regenerateSession } from "../services/regenerate";
 import { escapeLike } from "../services/session-queries";
 import type { Env } from "../types";
 
@@ -82,6 +84,27 @@ async function setHidden(c: Context<AppEnv>, hidden: boolean) {
   }
   return c.json({ success: true });
 }
+
+// 要約・ジャンル・参加者を取り直し、発言と記憶を消して未生成に戻す。生成は、対談ページを開くと始まる
+app.post("/:id/regenerate", async (c) => {
+  const id = c.req.param("id");
+  let result: Awaited<ReturnType<typeof regenerateSession>>;
+  try {
+    result = await regenerateSession(c.env, id);
+  } catch (err) {
+    console.error("Session regeneration failed:", err);
+    return c.json({ error: `再生成に失敗しました: ${errorMessage(err)}` }, 500);
+  }
+  if (!result.ok) {
+    return c.json({ error: result.error }, result.status);
+  }
+  try {
+    c.executionCtx.waitUntil(purgeSessionCache(new URL(c.req.url).origin, id));
+  } catch {
+    // executionCtx がない環境では、有効期限で切れる
+  }
+  return c.json({ success: true, sessionId: id, genre: result.genre, scraped: result.scraped });
+});
 
 app.post("/:id/hide", (c) => setHidden(c, true));
 app.post("/:id/restore", (c) => setHidden(c, false));
