@@ -3,6 +3,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { BrainCircuit, CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
 import { OgpCard } from "../client/components/OgpCard";
 import { PersonaAvatar } from "../client/components/PersonaAvatar";
+import { getSessionMeta } from "../server-fns/session-meta";
 import { ChatMessage, PastMemory, Persona, SessionSummary, api } from "../client/lib/api";
 
 export const Route = createFileRoute("/s/$id")({
@@ -10,6 +11,26 @@ export const Route = createFileRoute("/s/$id")({
     const turns = Number(search.turns);
     return Number.isInteger(turns) && turns > 0 && turns <= 20 ? { turns } : {};
   },
+  loader: ({ params }) => getSessionMeta({ data: params.id }),
+  head: ({ loaderData }) =>
+    loaderData
+      ? {
+          meta: [
+            { title: loaderData.title },
+            { name: "description", content: loaderData.description },
+            { property: "og:type", content: "article" },
+            { property: "og:site_name", content: "Persona-Cast" },
+            { property: "og:title", content: loaderData.title },
+            { property: "og:description", content: loaderData.description },
+            { property: "og:url", content: loaderData.pageUrl },
+            { property: "og:image", content: loaderData.imageUrl },
+            { property: "og:image:width", content: "1200" },
+            { property: "og:image:height", content: "630" },
+            { name: "twitter:card", content: "summary_large_image" },
+            { name: "twitter:image", content: loaderData.imageUrl },
+          ],
+        }
+      : {},
   component: SessionPage,
 });
 

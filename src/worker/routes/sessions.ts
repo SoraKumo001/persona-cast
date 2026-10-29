@@ -6,6 +6,7 @@ import { normalizeUrl } from "../services/url-normalize";
 import { extractiveSummary, summarizeArticle } from "../services/summary";
 import { searchSimilarMemories } from "../services/memory";
 import { orchestrateDialogue } from "../services/dialogue";
+import { getSessionOgpImage } from "../services/ogp-image";
 import { ensureDatabaseTables } from "../presets";
 
 const app = new Hono<{ Bindings: Env }>();
@@ -128,6 +129,20 @@ app.get("/:id", async (c) => {
       };
     }),
   });
+});
+
+// 対談ごとのOGP画像 (1200x630 PNG)。SNS/チャットのリンクプレビュー用
+app.get("/:id/ogp.png", async (c) => {
+  try {
+    const png = await getSessionOgpImage(c.env, c.req.param("id"));
+    if (!png) return c.json({ error: "セッションが見つかりません" }, 404);
+    return new Response(png as BodyInit, {
+      headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=3600" },
+    });
+  } catch (err: any) {
+    console.error("OGP image generation failed:", err);
+    return c.json({ error: "OGP画像の生成に失敗しました" }, 500);
+  }
 });
 
 // 新規対談セッション作成 (URL正規化・既存対談の再利用・URL抽出・記憶照会)

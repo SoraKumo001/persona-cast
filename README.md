@@ -134,3 +134,12 @@ Worker 側でも `Cf-Access-Jwt-Assertion` の署名・`aud`・`iss` を検証�
 
 URLは正規化 (`https` 統一・`www.`/fragment/トラッキングクエリ除去・クエリ整列・canonical 採用) して比較します。
 同じページの対談が既にある場合は、再取得・再生成せず保存済みの対談を表示します。
+
+## 対談ごとのOGP画像
+
+`GET /api/sessions/:id/ogp.png` が、対談ごとの OGP 画像 (1200x630 PNG) を [wasm-html-to-image](https://github.com/SoraKumo001/wasm-html-to-image) で生成します。
+記事タイトル・要約・参加ペルソナ(アバター)の発言抜粋・人数/発言数を載せ、`/s/$id` の `og:image` / `twitter:card` に設定されます。
+
+- 生成結果は R2 (`ogp/{sessionId}/{テンプレート版}-{発言数}.png`) にキャッシュします。発言数が変わると別キーになるため、対談の途中状態が固定化されることはありません。デザインを変えたら `ogp-image.ts` の `TEMPLATE_VERSION` を上げてください。
+- フォント (Noto Sans JP) は生成時に Google Fonts から自動取得されます。
+- WASM は約12.7MB (gzip 約4.4MB) です。Workers の無料プラン上限 (圧縮3MB) を超えるため、**Workers Paid プランが必要**です。
