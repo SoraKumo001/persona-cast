@@ -181,7 +181,12 @@ function SessionList({ genre }: { genre?: string }) {
 }
 
 function SessionCard({ session: s }: { session: SessionListItem }) {
-  const [imageBroken, setImageBroken] = React.useState(false);
+  // サムネイルは、サイトのOGP画像 → 無い/読み込めなければ対談ごとの生成画像 → それも不可ならジャンル表示
+  const sources = [s.ogp?.image, `/api/sessions/${s.id}/ogp.png`].filter((src): src is string => !!src);
+  const [stage, setStage] = React.useState(0);
+  const src = sources[stage];
+  const isSiteImage = !!s.ogp?.image && stage === 0;
+
   return (
     <Link
       to="/s/$id"
@@ -189,16 +194,18 @@ function SessionCard({ session: s }: { session: SessionListItem }) {
       className="group flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60 transition-colors hover:border-zinc-600"
     >
       <div className="aspect-[1.91/1] overflow-hidden bg-gradient-to-br from-indigo-950 to-zinc-900">
-        {!imageBroken ? (
-          // 対談の内容(要約・発言抜粋)を載せた、対談ごとのOGP画像
+        {src ? (
           <img
-            src={`/api/sessions/${s.id}/ogp.png`}
+            key={src}
+            src={src}
             alt=""
             loading="lazy"
             width={1200}
             height={630}
-            className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
-            onError={() => setImageBroken(true)}
+            referrerPolicy={isSiteImage ? "no-referrer" : undefined}
+            // サイトの画像は比率が様々なので切り抜かず全体を見せる
+            className={`h-full w-full ${isSiteImage ? "bg-zinc-800 object-contain" : "object-cover"}`}
+            onError={() => setStage((n) => n + 1)}
           />
         ) : (
           <div className="flex h-full items-center justify-center px-4 text-center text-sm font-medium text-indigo-200/70">
