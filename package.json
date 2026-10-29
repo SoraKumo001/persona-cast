@@ -8,8 +8,8 @@
     "build": "vite build",
     "deploy": "cf deploy",
     "cf:types": "cf workers types",
-    "d1:migrate:local": "cf d1 migrations apply persona-cast-db --local",
-    "d1:migrate": "cf d1 migrations apply persona-cast-db"
+    "d1:migrate:local": "cf d1 migrations apply b2c5e638-4f91-4c91-9e28-3d1f5e27a901 --local",
+    "d1:migrate": "cf d1 migrations apply b2c5e638-4f91-4c91-9e28-3d1f5e27a901"
   },
   "dependencies": {
     "@tanstack/react-router": "1.170.46",
