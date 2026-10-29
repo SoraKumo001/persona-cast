@@ -22,6 +22,15 @@ import personaGenerateOthers from "./persona-generate-others.md?raw";
 import personaGenerateNew from "./persona-generate-new.md?raw";
 import personaGenerateModify from "./persona-generate-modify.md?raw";
 
+// 発言の長さに落差を付けるため、ターンごとに長さの目安を循環させる (全発言が同じ長さになるのを防ぐ)
+const LENGTH_HINTS = [
+  "一言〜一文だけ(40文字以内)の短い返し",
+  "2〜3文(100文字前後)",
+  "短めに1〜2文(60文字前後)",
+  "しっかり語る。4〜5文(180文字前後)",
+  "一言の相槌や反応のあと、一文だけ付け足す(50文字前後)",
+];
+
 /** 対談: 1ターン分 (発言者のペルソナ設定を system、これまでの流れと指示を user にする) */
 export function buildTurnMessages(params: {
   currentPersona: { id: string; name: string; role: string; personality: string; speakingStyle: string };
@@ -80,7 +89,9 @@ export function buildTurnMessages(params: {
       role: "user",
       content: renderPrompt(dialogueTurn, {
         history: history.map((h) => `${h.personaName}: 「${h.text}」`).join("\n\n"),
-        instruction: renderPrompt(isLastTurn ? dialogueInstructionFinal : dialogueInstructionReply),
+        instruction: isLastTurn
+          ? renderPrompt(dialogueInstructionFinal)
+          : renderPrompt(dialogueInstructionReply, { lengthHint: LENGTH_HINTS[turnIndex % LENGTH_HINTS.length] }),
       }),
     });
   }
