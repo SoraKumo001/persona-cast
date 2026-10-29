@@ -89,7 +89,10 @@ app.post("/", async (c) => {
   if (existing) return existingResponse(existing);
 
   // 新しい記事の取得 (外部アクセス + LLM) だけを制限する。保存済みの対談を開くだけなら対象外
-  const limited = await rateLimit(c, "create", 10, 3600);
+  const limited =
+    (await rateLimit(c, "create", 10, 3600)) ??
+    // 1日の上限。日本時間の0時で区切る (UTC+9 = 32400秒)
+    (await rateLimit(c, "create-day", 30, 86400, 9 * 3600));
   if (limited) return limited;
 
   // 2. URLから記事内容・OGPを抽出

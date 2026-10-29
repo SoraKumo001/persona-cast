@@ -12,19 +12,21 @@ export async function rateLimit(
   c: Context<{ Bindings: Env }>,
   name: string,
   limit: number,
-  windowSeconds: number
+  windowSeconds: number,
+  /** ウィンドウの区切りをずらす秒数 (日本時間の0時区切りなら 9時間 = 32400) */
+  offsetSeconds = 0
 ): Promise<Response | null> {
   const ip = c.req.header("CF-Connecting-IP");
   if (!ip || !c.env.DB) return null;
 
   try {
     const nowSec = Math.floor(Date.now() / 1000);
-    const bucket = Math.floor(nowSec / windowSeconds);
-    const expiresAt = (bucket + 1) * windowSeconds;
+    const bucket = Math.floor((nowSec + offsetSeconds) / windowSeconds);
+    const expiresAt = (bucket + 1) * windowSeconds - offsetSeconds;
     const row = await c.env.DB.prepare(
       "INSERT INTO rate_limits (key, count, expires_at) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = count + 1 RETURNING count"
     )
-      .bind(`${name}:${ip}:${bucket}`, expiresAt)
+      .bind(`${name}:${clientKey(ip)}:${bucket}`, expiresAt)
       .first<{ count: number }>();
 
     // 期限切れの行を、たまに掃除する
@@ -41,6 +43,23 @@ export async function rateLimit(
     console.warn("rateLimit failed (allowing request):", err);
   }
   return null;
+}
+
+/**
+ * レート制限のキーにする識別子。IPv6 は利用者に /64 がまとめて割り当てられるため、
+ * 先頭64ビット (4グループ) で数える。IPv4 はそのまま。
+ */
+export function clientKey(ip: string): string {
+  if (!ip.includes(":")) return ip;
+  const [head, tail] = ip.toLowerCase().split("::");
+  const headParts = head ? head.split(":") : [];
+  const tailParts = tail !== undefined && tail ? tail.split(":") : [];
+  const missing = Math.max(8 - headParts.length - tailParts.length, 0);
+  const groups = tail === undefined ? headParts : [...headParts, ...Array(missing).fill("0"), ...tailParts];
+  return groups
+    .slice(0, 4)
+    .map((g) => g.replace(/^0+(?=.)/, ""))
+    .join(":") + "::/64";
 }
 
 /** クエリ文字列などの数値を範囲内の整数にする。不正なら既定値 */
