@@ -11,12 +11,12 @@ async function getDb(): Promise<D1Database> {
 }
 
 export const getSessionList = createServerFn({ method: "GET" })
-  .validator((input: { genre?: string; page?: number }) => input)
-  .handler(async ({ data: { genre, page } }) => {
+  .validator((input: { genre?: string; page?: number; q?: string }) => input)
+  .handler(async ({ data: { genre, page, q } }) => {
     const { listSessions } = await import("../worker/services/session-queries");
     const { cacheFor } = await import("../worker/cache");
     try {
-      const result = await listSessions(await getDb(), { genre, page });
+      const result = await listSessions(await getDb(), { genre, page, q });
       // 新しい対談が増える一覧なので、エッジも短くする
       cacheFor(15);
       return result;

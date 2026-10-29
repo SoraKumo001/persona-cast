@@ -43,6 +43,7 @@ app.get("/", async (c) => {
     return c.json(
       await listSessions(c.env.DB, {
         genre: c.req.query("genre"),
+        q: c.req.query("q"),
         page: clampInt(c.req.query("page"), 1, 100_000, 1),
         pageSize: clampInt(c.req.query("limit"), 1, 100, PAGE_SIZE),
       })

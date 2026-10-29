@@ -35,13 +35,43 @@ export interface ParticipantSummary {
 
 export const PAGE_SIZE = 24;
 
-/** 対談の一覧。genre で絞り込み、ジャンル別の件数と、ページ送りの情報も返す */
-export async function listSessions(db: D1Database, options: { genre?: string; page?: number; pageSize?: number } = {}) {
+export const SEARCH_MAX_CHARS = 50;
+const SEARCH_MAX_TERMS = 5;
+
+/** LIKE のワイルドカード (% _ \) を、ただの文字として扱う */
+export function escapeLike(text: string): string {
+  return text.replace(/[\\%_]/gu, (ch) => `\\${ch}`);
+}
+
+/** 空白で区切った語を、すべて含む対談 (AND)。タイトルか要約に含まれていればよい */
+export function searchCondition(q: string | undefined): { binds: string[]; sql: string } | null {
+  const terms = (q ?? "").slice(0, SEARCH_MAX_CHARS).split(/\s+/u).filter(Boolean).slice(0, SEARCH_MAX_TERMS);
+  if (terms.length === 0) {
+    return null;
+  }
+  return {
+    sql: terms.map(() => "(article_title LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\')").join(" AND "),
+    binds: terms.flatMap((t) => {
+      const pattern = `%${escapeLike(t)}%`;
+      return [pattern, pattern];
+    }),
+  };
+}
+
+/** 対談の一覧。genre・キーワード(q)で絞り込み、ジャンル別の件数と、ページ送りの情報も返す */
+export async function listSessions(
+  db: D1Database,
+  options: { genre?: string; page?: number; pageSize?: number; q?: string } = {}
+) {
   const pageSize = Math.min(Math.max(options.pageSize ?? PAGE_SIZE, 1), 100);
   const genre = options.genre && isGenre(options.genre) ? options.genre : undefined;
+  const search = searchCondition(options.q);
 
-  const where = genre ? `WHERE ${HAS_MESSAGES} AND genre = ?` : `WHERE ${HAS_MESSAGES}`;
-  const filterBinds = genre ? [genre] : [];
+  // ジャンルの件数は、キーワードで絞った中での件数にする
+  const baseSql = search ? `${HAS_MESSAGES} AND ${search.sql}` : HAS_MESSAGES;
+  const baseBinds = search?.binds ?? [];
+  const where = genre ? `WHERE ${baseSql} AND genre = ?` : `WHERE ${baseSql}`;
+  const filterBinds = genre ? [...baseBinds, genre] : baseBinds;
 
   const countRow = await db
     .prepare(`SELECT COUNT(*) as count FROM sessions ${where}`)
@@ -80,9 +110,9 @@ export async function listSessions(db: D1Database, options: { genre?: string; pa
 
   const { results: genres } = await db
     .prepare(
-      `SELECT COALESCE(genre, ?) as genre, COUNT(*) as count FROM sessions WHERE ${HAS_MESSAGES} GROUP BY 1 ORDER BY count DESC, genre ASC`
+      `SELECT COALESCE(genre, ?) as genre, COUNT(*) as count FROM sessions WHERE ${baseSql} GROUP BY 1 ORDER BY count DESC, genre ASC`
     )
-    .bind(DEFAULT_GENRE)
+    .bind(DEFAULT_GENRE, ...baseBinds)
     .all<{ genre: string; count: number }>();
 
   return {

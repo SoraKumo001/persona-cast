@@ -3,6 +3,7 @@ import { purgeSessionCache } from "../cache";
 import { requireAccess } from "../middleware/access";
 import { clampInt } from "../middleware/rate-limit";
 import { ensureDatabaseTables } from "../presets";
+import { escapeLike } from "../services/session-queries";
 import type { Env } from "../types";
 
 interface AppEnv {
@@ -28,11 +29,6 @@ interface AdminSessionRow {
   id: string;
   messageCount: number;
   sourceUrl: string;
-}
-
-/** LIKE のワイルドカードを文字として扱う */
-function escapeLike(text: string): string {
-  return text.replace(/[\\%_]/gu, (ch) => `\\${ch}`);
 }
 
 // 管理用の一覧 (非表示も含む)。q はタイトルまたはURLの部分一致

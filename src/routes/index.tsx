@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { ArrowRight, ChevronLeft, ChevronRight, Link2, Loader2, MessagesSquare } from "lucide-react";
+import { ArrowRight, ChevronLeft, ChevronRight, Link2, Loader2, MessagesSquare, Search } from "lucide-react";
 import React from "react";
 import { PersonaAvatar } from "../client/components/PersonaAvatar";
 import { errorMessage, formatDate, type GenreCount, hostOf, postJson, type SessionListItem } from "../client/lib/api";
@@ -8,21 +8,23 @@ import { getSessionList } from "../server-fns/sessions";
 import { getSiteOrigin } from "../server-fns/site-meta";
 
 export const Route = createFileRoute("/")({
-  validateSearch: (search: Record<string, unknown>): { genre?: string; page?: number } => {
+  validateSearch: (search: Record<string, unknown>): { genre?: string; page?: number; q?: string } => {
     const page = Number(search.page);
+    const q = typeof search.q === "string" ? search.q.trim().slice(0, 50) : "";
     return {
       ...(typeof search.genre === "string" && search.genre ? { genre: search.genre } : {}),
+      ...(q ? { q } : {}),
       // 1ページ目は省略する (URLを1つに保つ)
       ...(Number.isInteger(page) && page > 1 ? { page } : {}),
     };
   },
-  loaderDeps: ({ search }) => ({ genre: search.genre, page: search.page }),
+  loaderDeps: ({ search }) => ({ genre: search.genre, page: search.page, q: search.q }),
   loader: async ({ deps }) => {
     const [list, origin] = await Promise.all([
-      getSessionList({ data: { genre: deps.genre, page: deps.page } }),
+      getSessionList({ data: { genre: deps.genre, page: deps.page, q: deps.q } }),
       getSiteOrigin(),
     ]);
-    return { ...list, origin };
+    return { ...list, origin, q: deps.q };
   },
   head: ({ loaderData }) => {
     const title = "Persona-Cast | URLをAIペルソナが語り合う";
@@ -31,6 +33,8 @@ export const Route = createFileRoute("/")({
     return {
       meta: [
         { title },
+        // 検索結果のページは、検索エンジンの索引に入れない
+        ...(loaderData?.q ? [{ name: "robots", content: "noindex" }] : []),
         { name: "description", content: description },
         { property: "og:type", content: "website" },
         { property: "og:site_name", content: "Persona-Cast" },
@@ -62,7 +66,7 @@ function isHttpUrl(value: string) {
 }
 
 function HomePage() {
-  const { genre } = Route.useSearch();
+  const { genre, q } = Route.useSearch();
   const { sessions, genres, page, totalPages } = Route.useLoaderData() as {
     sessions: SessionListItem[];
     genres: GenreCount[];
@@ -72,7 +76,7 @@ function HomePage() {
   return (
     <div className="space-y-10">
       <NewDialogueForm />
-      <SessionList genre={genre} genres={genres} page={page} sessions={sessions} totalPages={totalPages} />
+      <SessionList genre={genre} genres={genres} page={page} q={q} sessions={sessions} totalPages={totalPages} />
     </div>
   );
 }
@@ -150,14 +154,57 @@ function NewDialogueForm() {
   );
 }
 
+/** キーワード検索。JS なしでも動くよう、GET のフォームにしている (結果は ?q= のURLで共有できる) */
+function SearchForm({ genre, q }: { genre?: string; q?: string }) {
+  const navigate = useNavigate();
+  const [value, setValue] = React.useState(q ?? "");
+  // 戻る・進むや「クリア」でURLの q が変わったら、入力欄も合わせる
+  React.useEffect(() => {
+    setValue(q ?? "");
+  }, [q]);
+
+  return (
+    <search className="mx-auto block max-w-md">
+      <form
+        action="/"
+        className="relative"
+        method="get"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const next = value.trim();
+          navigate({ to: "/", search: { ...(genre ? { genre } : {}), ...(next ? { q: next } : {}) } });
+        }}
+      >
+        <label className="sr-only" htmlFor="q">
+          対談をキーワードで検索
+        </label>
+        <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+        <input
+          className="w-full rounded-full border border-zinc-800 bg-zinc-900 py-2 pr-4 pl-10 text-sm text-zinc-50 placeholder-zinc-600 outline-none focus:border-indigo-500"
+          id="q"
+          maxLength={50}
+          name="q"
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="対談をキーワードで検索"
+          type="search"
+          value={value}
+        />
+        {genre ? <input name="genre" type="hidden" value={genre} /> : null}
+      </form>
+    </search>
+  );
+}
+
 function SessionList({
   genre,
+  q,
   sessions,
   genres,
   page,
   totalPages,
 }: {
   genre?: string;
+  q?: string;
   sessions: SessionListItem[];
   genres: GenreCount[];
   page: number;
@@ -173,9 +220,10 @@ function SessionList({
 
   return (
     <section aria-label="対談の一覧" className="space-y-5">
+      <SearchForm genre={genre} q={q} />
       {genres.length > 0 && (
         <nav aria-label="ジャンルで絞り込み" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-          <Link aria-current={genre ? undefined : "page"} className={chip(!genre)} to="/">
+          <Link aria-current={genre ? undefined : "page"} className={chip(!genre)} search={q ? { q } : {}} to="/">
             すべて <span className="text-zinc-500">{total}</span>
           </Link>
           {genres.map((g) => (
@@ -183,7 +231,7 @@ function SessionList({
               aria-current={genre === g.genre ? "page" : undefined}
               className={chip(genre === g.genre)}
               key={g.genre}
-              search={{ genre: g.genre }}
+              search={{ genre: g.genre, ...(q ? { q } : {}) }}
               to="/"
             >
               {g.genre} <span className="text-zinc-500">{g.count}</span>
@@ -195,9 +243,9 @@ function SessionList({
       {sessions.length === 0 ? (
         <div className="flex flex-col items-center gap-2 py-16 text-center text-sm text-zinc-400">
           <MessagesSquare className="h-8 w-8 text-zinc-600" />
-          {genre ? (
+          {q || genre ? (
             <p>
-              「{genre}」の対談はまだありません。
+              {q ? `「${q}」に一致する` : `「${genre}」の`}対談はありません。
               <Link className="ml-1 text-indigo-300 hover:text-indigo-200" to="/">
                 すべて表示
               </Link>
@@ -216,16 +264,20 @@ function SessionList({
         </ul>
       )}
 
-      {totalPages > 1 && <Pagination genre={genre} page={page} totalPages={totalPages} />}
+      {totalPages > 1 && <Pagination genre={genre} page={page} q={q} totalPages={totalPages} />}
     </section>
   );
 }
 
 /** ページ送り。各ページは ?page=N のリンクなので、URLで共有でき、SSRもキャッシュもページごとに効く */
-function Pagination({ genre, page, totalPages }: { genre?: string; page: number; totalPages: number }) {
+function Pagination({ genre, q, page, totalPages }: { genre?: string; q?: string; page: number; totalPages: number }) {
   const cell = "inline-flex h-9 min-w-9 items-center justify-center rounded-lg border px-3 text-sm transition-colors";
   const idle = "border-zinc-800 bg-zinc-900/60 text-zinc-300 hover:border-zinc-600";
-  const searchFor = (p: number) => ({ ...(genre ? { genre } : {}), ...(p > 1 ? { page: p } : {}) });
+  const searchFor = (p: number) => ({
+    ...(genre ? { genre } : {}),
+    ...(q ? { q } : {}),
+    ...(p > 1 ? { page: p } : {}),
+  });
 
   return (
     <nav aria-label="ページ送り" className="flex flex-wrap items-center justify-center gap-1.5 pt-2">

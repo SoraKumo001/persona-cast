@@ -249,6 +249,10 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 - 生成済みの対談ページの下に、内容の近い過去の対談を最大3件出します。記憶検索 (Vectorize、無ければ D1) の類似度が 0.5 以上のものだけです。検索に失敗してもページは表示します。
 - `/sitemap.xml` (公開中の対談を新しい順に最大5000件)、`/rss.xml` (新着30件)、`/robots.txt` (`/admin` と `/api/` を除外し、sitemap を案内) を返します。対談ページには canonical と JSON-LD (Article) を出し、存在しない・非表示のページには `noindex` を付けます。
 
+## キーワード検索
+
+トップページの検索欄で、対談のタイトルと要約を絞り込めます (`/?q=…`、`GET /api/sessions?q=…`)。空白で区切った語はすべて含むものに絞り (最大5語・全体で50文字まで)、ジャンル・ページ送りとも併用できます。ジャンルの件数も、検索で絞った中の件数になります。JS なしでも動く GET のフォームで、検索結果のページには `noindex` を付けます。
+
 ## ファビコンと管理画面のURL
 
 - ファビコンは `public/` にあります (`favicon.svg` が本体、`favicon-32.png` / `favicon.ico` / `apple-touch-icon.png` は `python scripts/make-favicons.py public` で同じ図形から生成。Pillow が必要)。
