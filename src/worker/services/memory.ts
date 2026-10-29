@@ -160,6 +160,35 @@ async function searchRawMemories(
   }
 }
 
+/** Vectorize に入れる1件分 (保存時と、管理画面からの再同期で同じ形にする) */
+export function toVectorRecord(
+  chunk: {
+    articleTitle: string;
+    id: string;
+    keyQuotes: string;
+    personaIds: string[];
+    sessionId: string;
+    sourceUrl: string;
+    topicSummary: string;
+  },
+  embedding: number[],
+  createdAt: string
+) {
+  return {
+    id: chunk.id,
+    values: embedding,
+    metadata: {
+      sessionId: chunk.sessionId,
+      articleTitle: chunk.articleTitle,
+      sourceUrl: chunk.sourceUrl,
+      topicSummary: chunk.topicSummary.slice(0, 400),
+      keyQuotes: chunk.keyQuotes.slice(0, 400),
+      personaIds: JSON.stringify(chunk.personaIds),
+      createdAt,
+    },
+  };
+}
+
 /**
  * 対談終了後に新しい記憶チャンクをD1およびVectorizeに永続化
  */
@@ -200,21 +229,7 @@ export async function saveMemoryChunk(
   // 2. Vectorize に upsert
   if (env.VECTORIZE) {
     try {
-      await env.VECTORIZE.upsert([
-        {
-          id: chunk.id,
-          values: embedding,
-          metadata: {
-            sessionId: chunk.sessionId,
-            articleTitle: chunk.articleTitle,
-            sourceUrl: chunk.sourceUrl,
-            topicSummary: chunk.topicSummary.slice(0, 400),
-            keyQuotes: chunk.keyQuotes.slice(0, 400),
-            personaIds: JSON.stringify(chunk.personaIds),
-            createdAt: now,
-          },
-        },
-      ]);
+      await env.VECTORIZE.upsert([toVectorRecord(chunk, embedding, now)]);
     } catch (err) {
       console.warn("Vectorize upsert warning:", err);
     }

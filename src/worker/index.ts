@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { cacheFor } from "./cache";
 import { ensureDatabaseTables } from "./presets";
 import adminAnalyticsRouter from "./routes/admin-analytics";
+import adminMemoriesRouter from "./routes/admin-memories";
 import adminPersonasRouter from "./routes/admin-personas";
 import adminSessionsRouter from "./routes/admin-sessions";
 import adminSettingsRouter from "./routes/admin-settings";
@@ -30,6 +31,7 @@ app.use("/api/memories/*", cors());
 // APIルートのマウント
 app.route("/api/personas", personasRouter);
 app.route("/api/admin/personas", adminPersonasRouter);
+app.route("/api/admin/memories", adminMemoriesRouter);
 app.route("/api/admin/sessions", adminSessionsRouter);
 app.route("/api/admin/settings", adminSettingsRouter);
 app.route("/api/admin/analytics", adminAnalyticsRouter);
