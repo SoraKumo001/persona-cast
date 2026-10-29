@@ -150,7 +150,7 @@ function SetupNotice({ hasDataset }: { hasDataset: boolean }) {
         <li>
           <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs">CF_ACCOUNT_ID</code> (アカウントID) と{" "}
           <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs">CF_API_TOKEN</code> を{" "}
-          <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs">cf workers secrets put</code> で登録する
+          <code className="rounded bg-zinc-800 px-1.5 py-0.5 text-xs">cf workers secrets update</code> で登録する
         </li>
       </ol>
       <p className="text-xs text-zinc-500">

@@ -90,45 +90,70 @@ TanStack Start による SSR ページと API サーバーがローカル `worke
 
 ## Cloudflare への本番デプロイ (`cf` CLI)
 
-### 1. D1 データベース & Vectorize インデックスの準備
+### 前提
+- **Workers Paid プランが必要です。** OGP 画像の生成に使う WASM が約 12.7MB あり、無料枠のサイズ上限を超えます。
+- `cf` CLI でログイン済みで、`cloudflare.config.ts` の `DB.id` (D1 の ID) がデプロイ先アカウントのものと一致していること。
+
+### 1. リソースを作る (初回のみ)
 ```bash
 cf d1 create persona-cast-db
 cf vectorize create persona-cast-memories --dimensions=1024 --metric=cosine
+cf r2 buckets create --name persona-cast-avatars
 ```
-発行された `database_id` を `cloudflare.config.ts` に反映します。
+D1 を新規に作ったら、発行された ID を `cloudflare.config.ts` の `DB.id` と、`package.json` の `d1:migrate` 系のスクリプトに反映します。
+Analytics Engine のデータセット (`persona_cast_events`) は、デプロイ時に作られる想定です。
 
-### 2. 本番 D1 へのマイグレーション適用
+### 2. 本番 D1 のマイグレーション (**デプロイより先**)
 ```bash
 bun run d1:migrate
 ```
+新しいコードを先にデプロイすると、起動時の自動追加 (`ensureDatabaseTables`) が列を足し、その後のマイグレーションが「列が重複」で失敗します。必ずマイグレーションを先に流してください。
 
-### 3. 本番シークレット登録 & デプロイ
+### 3. シークレットの登録
+`cf workers secrets update <名前> --worker persona-cast --text <値>` で登録します (複数なら `cf workers secrets bulk`)。値をコマンドラインに書くとシェルの履歴に残るので注意してください。
+
+| シークレット | 用途 | |
+|---|---|---|
+| `OPENCODE_API_KEY` | LLM。未設定だとデモ用の応答になる | 必須 |
+| `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` | 管理画面の認証 (後述)。未設定だと管理 API は常に拒否 | 必須 |
+| `ANALYTICS_SALT` | 訪問者ハッシュのソルト (長いランダムな文字列) | 任意 |
+| `CF_ACCOUNT_ID`, `CF_API_TOKEN` | アクセス状況の集計 (トークンの権限は Account Analytics の読み取りだけ) | 任意 |
+
+`ACCESS_DISABLED` は本番では設定しません (localhost でしか効きませんが、念のため)。
+
+### 4. デプロイ
 ```bash
-cf workers secrets put OPENCODE_API_KEY
-bun run deploy
-# または cf deploy
+bun run check && bun test && bun run build   # 事前確認 (任意)
+bun run deploy                               # cf deploy
 ```
+宣言したシークレットが未登録でデプロイが止まる場合は、先にデプロイしてからシークレットを登録してください。
 
----
+### 5. 独自ドメイン
+ダッシュボードの Workers > 該当 Worker > Settings > Domains & Routes で、公開するドメイン (`croud.jp`) を追加します。**`*.workers.dev` では Cache API が効きません。**
 
-## 管理者認証 (Cloudflare Access) とアバター (R2)
-
-ペルソナの編集は管理者のみ。`/admin` と `/admin/*` (画面) と `/api/admin/*` (API) を Cloudflare Access で保護します。
+### 6. 管理者認証 (Cloudflare Access)
+ペルソナの編集・設定・アクセス状況は管理者のみです。`/admin` と `/admin/*` (画面) と `/api/admin/*` (API) を Cloudflare Access で保護します。
 Worker 側でも `Cf-Access-Jwt-Assertion` の署名・`aud`・`iss` を検証します (設定が欠けていれば常に拒否)。
 
-1. **R2 バケット作成**: `cf r2 bucket create persona-cast-avatars`
-2. **Access アプリ作成** (Zero Trust ダッシュボード → Access → Applications → Self-hosted)
+1. Zero Trust ダッシュボード > Access > Applications > Self-hosted でアプリを作る
    - パス: `/admin` (画面の本体。`/admin/*` だけでは `/admin` が含まれない)、`/admin/*`、`/api/admin/*` の3つ。旧URLの `/admin/personas` は `/admin` に転送します
    - ポリシー: 許可する管理者のメールアドレスのみ Allow
-   - 発行された **Application Audience (AUD) タグ** と **チームドメイン** (`<team>.cloudflareaccess.com`) を控える
-3. **シークレット登録**
-   ```bash
-   cf workers secrets put ACCESS_TEAM_DOMAIN
-   cf workers secrets put ACCESS_AUD
-   ```
-4. **マイグレーション適用**: `bun run d1:migrate` (`0002_avatars_urls_ogp.sql`)
+2. 発行された **Application Audience (AUD) タグ** と **チームドメイン** (`<team>.cloudflareaccess.com`) を、手順3の `ACCESS_AUD` / `ACCESS_TEAM_DOMAIN` に登録する
 
 ローカル開発では `.dev.vars` に `ACCESS_DISABLED="true"` を設定すると、`localhost` に限り検証をスキップします。
+
+### 7. 任意の設定
+- アクセス状況の集計: 手順3の `CF_ACCOUNT_ID` / `CF_API_TOKEN` を登録すると `/admin/analytics` に出ます (詳細は「アクセス状況」)。
+- Web Analytics: ダッシュボードで有効にします (詳細は「アクセス状況」)。
+
+### 8. デプロイ後の確認
+1. `/` と `/s/<id>` が開く。
+2. 新しい URL を送ると対談が生成される (LLM のキーの確認)。
+3. `/admin` が Access のログインを経由し、ペルソナを編集できる。
+4. `/api/health` が `hasApiKey` / `hasAiBinding` / `hasVectorizeBinding` とも `true`。
+5. `curl -I https://<ドメイン>/` を2回送り、2回目に `x-cache: HIT` が付く (独自ドメインのキャッシュ)。
+6. `/api/sessions/<id>/ogp.png` が表示される (WASM が動いている確認)。
+7. 管理画面で、1日の対談数の上限 (既定 1000) を確認する。
 
 ## 同一URLの扱い
 
@@ -215,7 +240,7 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 
 ### 設定
 1. **API トークンを作る**: Cloudflare ダッシュボード > My Profile > API Tokens で、権限を「Account > Account Analytics > Read」だけにしたトークンを作ります。
-2. **シークレットを登録**: `cf workers secrets put CF_ACCOUNT_ID` (アカウントID)、`cf workers secrets put CF_API_TOKEN`、`cf workers secrets put ANALYTICS_SALT` (長いランダムな文字列)。
+2. **シークレットを登録**: 上の「Cloudflare への本番デプロイ」の手順3のとおり、`CF_ACCOUNT_ID` (アカウントID)、`CF_API_TOKEN`、`ANALYTICS_SALT` を `cf workers secrets update` で登録します。
 3. 登録するまで、画面には設定の案内が出ます。ローカル (`cf dev`) では記録先に問い合わせできないため、集計は表示できません (記録の書き込みは単体テストで確認しています)。
 
 保持は約3か月で、データが多いときはサンプリングされます (集計は `_sample_interval` で重み付けします)。料金は Cloudflare の最新の価格表を確認してください。
