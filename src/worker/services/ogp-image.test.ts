@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildOgpHtml, escapeHtml, excerpt, pickQuotes } from "./ogp-image";
+import { buildOgpHtml, buildSiteOgpHtml, escapeHtml, excerpt, pickQuotes } from "./ogp-image";
 
 const persona = { id: "ken", name: "ケン", avatar: "💻", themeColor: "#2563eb" };
 
@@ -68,5 +68,22 @@ describe("buildOgpHtml", () => {
     const html = buildOgpHtml({ ...base, quotes: [{ persona: { ...persona, themeColor: "red;}</div>" }, text: "x" }] });
     expect(html).not.toContain("red;}");
     expect(html).toContain("#6366f1");
+  });
+});
+
+describe("buildSiteOgpHtml", () => {
+  test("出演者の名前 (括弧の英名は除く) を並べ、名前・色はエスケープ/検証する", () => {
+    const html = buildSiteOgpHtml({
+      personas: [
+        { ...persona, name: "ケン (Ken)" },
+        { id: "x", name: "<script>alert(1)</script>", avatar: "🐶", themeColor: "red;background:url(x)" },
+      ],
+    });
+    expect(html).toContain(">ケン</div>");
+    expect(html).not.toContain("(Ken)");
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("background:url(x)");
+    expect(html).toContain("Persona-Cast");
   });
 });

@@ -2,6 +2,7 @@
  * URLから記事のタイトル・本文・OGP情報を抽出するスクレーパーサービス (HTMLRewriter ベース)
  */
 import { normalizeUrl, pickCanonical } from "./url-normalize";
+import { hasAdultRating } from "./adult-filter";
 
 export interface OgpInfo {
   title: string | null;
@@ -20,6 +21,8 @@ export interface ScrapedArticle {
   title: string;
   content: string;
   ogp: OgpInfo;
+  /** ページ自身が成人向けと宣言している (rating メタ / RTA ラベル) */
+  adultRated: boolean;
 }
 
 const MAX_REDIRECTS = 5;
@@ -221,7 +224,7 @@ export async function scrapeUrl(urlStr: string): Promise<ScrapedArticle> {
   const canonical = pickCanonical(finalUrl.toString(), page.canonical ?? meta("og:url"));
   const normalizedUrl = normalizeUrl(canonical ?? finalUrl.toString());
 
-  return { url: finalUrl.toString(), normalizedUrl, title, content, ogp };
+  return { url: finalUrl.toString(), normalizedUrl, title, content, ogp, adultRated: hasAdultRating(page.meta) };
 }
 
 /** 画像・favicon は http(s) のみ許可し、絶対URLに解決する */

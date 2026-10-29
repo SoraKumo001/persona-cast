@@ -1,6 +1,7 @@
 import { Env } from "../types";
 import { generateChatCompletion } from "./llm";
 import { OgpInfo } from "./scraper";
+import { looksAdult } from "./adult-filter";
 import { DEFAULT_GENRE, GENRES, Genre, guessGenre, isGenre } from "./genres";
 import { buildAnalyzeMessages } from "../prompts";
 
@@ -21,6 +22,8 @@ export interface Analysis {
   summary: string;
   genre: Genre;
   personaIds: string[];
+  /** 18歳未満の閲覧に適さない内容か (LLM の判定 + キーワード) */
+  adult: boolean;
 }
 
 /** LLM を使わない要約: OGP説明文 → 本文先頭 */
@@ -51,7 +54,7 @@ export function fallbackPersonas(candidates: PersonaCandidate[], seed: string, c
 export function parseAnalysis(
   text: string,
   candidates: PersonaCandidate[]
-): { summary?: string; genre?: Genre; personaIds?: string[] } {
+): { summary?: string; genre?: Genre; personaIds?: string[]; adult?: boolean } {
   const json = text.match(/\{[\s\S]*\}/)?.[0];
   if (!json) return {};
   let raw: any;
@@ -70,6 +73,7 @@ export function parseAnalysis(
     summary: typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.replace(/\s+/g, " ").trim().slice(0, SUMMARY_MAX_CHARS * 2) : undefined,
     genre: isGenre(raw.genre) ? raw.genre : undefined,
     personaIds: ids.length > 0 ? ids.slice(0, MAX_PERSONAS) : undefined,
+    adult: typeof raw.adult === "boolean" ? raw.adult : undefined,
   };
 }
 
@@ -94,10 +98,12 @@ export async function analyzeArticle(
   article: { title: string; content: string; ogp: OgpInfo; normalizedUrl: string },
   candidates: PersonaCandidate[]
 ): Promise<Analysis> {
+  const adultByKeywords = looksAdult(`${article.title}\n${article.ogp.description ?? ""}\n${article.content.slice(0, 3000)}`);
   const fallback: Analysis = {
     summary: extractiveSummary(article.content, article.ogp),
     genre: guessGenre(`${article.title}\n${article.content.slice(0, 1500)}`),
     personaIds: fallbackPersonas(candidates, article.normalizedUrl),
+    adult: adultByKeywords,
   };
 
   const apiKey = env.OPENCODE_API_KEY;
@@ -126,6 +132,8 @@ export async function analyzeArticle(
       summary: parsed.summary ?? fallback.summary,
       genre: parsed.genre ?? fallback.genre,
       personaIds: completePersonas(parsed.personaIds, candidates, article.normalizedUrl),
+      // LLM が false でも、強い語が複数あれば成人向けとして扱う
+      adult: (parsed.adult ?? false) || adultByKeywords,
     };
   } catch (err) {
     console.warn("analyzeArticle failed, using fallback:", err);

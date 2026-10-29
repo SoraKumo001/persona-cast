@@ -94,6 +94,8 @@ export async function ensureDatabaseTables(db: D1Database): Promise<void> {
       .prepare("CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL)")
       .run();
 
+    await db.prepare("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)").run();
+
     // 正規化URL未設定の既存セッションをバックフィル
     const { results: unnormalized } = await db
       .prepare("SELECT id, source_url FROM sessions WHERE normalized_url IS NULL")

@@ -205,3 +205,70 @@ export async function getSessionOgpImage(env: Env, sessionId: string): Promise<U
   }
   return png;
 }
+
+export interface SiteOgpData {
+  personas: OgpPersona[];
+}
+
+/** トップページ用の 1200x630 OGP画像HTML。サイトの紹介と、出演するペルソナを並べる */
+export function buildSiteOgpHtml(d: SiteOgpData): string {
+  const cast = d.personas
+    .map(
+      (p) => `<div style="display:flex;flex-direction:column;align-items:center;gap:12px;width:180px;">
+  ${avatarHtml(p, 112)}
+  <div style="font-size:24px;font-weight:700;color:${safeColor(p.themeColor)};text-align:center;max-width:180px;overflow:hidden;white-space:nowrap;">${escapeHtml(p.name.replace(/\s*[(（].*$/, ""))}</div>
+</div>`
+    )
+    .join("\n");
+
+  return `<div style="width:1200px;height:630px;box-sizing:border-box;padding:56px 64px;display:flex;flex-direction:column;justify-content:space-between;background:linear-gradient(135deg,#0b1020 0%,#1e1b4b 100%);color:#ffffff;font-family:'Noto Sans JP',sans-serif;">
+  <div style="display:flex;align-items:center;gap:20px;">
+    <div style="width:72px;height:72px;border-radius:20px;background:#6366f1;display:flex;align-items:center;justify-content:center;font-size:42px;">🎙️</div>
+    <div style="font-size:52px;font-weight:700;letter-spacing:-1px;">Persona-Cast</div>
+  </div>
+  <div>
+    <div style="font-size:60px;font-weight:700;line-height:1.3;">URLを貼るだけで、<br/>AIたちが記事を語り合う。</div>
+    <div style="margin-top:18px;font-size:28px;line-height:1.5;color:#cbd5e1;">個性の違うAIペルソナが、気になる記事を読んで対談します。</div>
+  </div>
+  <div style="display:flex;justify-content:flex-start;gap:36px;">
+${cast}
+  </div>
+</div>`;
+}
+
+/** 出演者の構成が変わったらキーも変わるようにするための短いハッシュ */
+function fingerprint(parts: string[]): string {
+  let h = 2166136261;
+  for (const ch of parts.join("|")) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  return h.toString(36);
+}
+
+/** トップページのOGP画像(PNG)。出演者の構成ごとにR2へキャッシュする */
+export async function getSiteOgpImage(env: Env): Promise<Uint8Array> {
+  const { results: rows } = await env.DB.prepare(
+    "SELECT id, name, avatar, avatar_type, avatar_key, theme_color, updated_at FROM personas WHERE archived_at IS NULL ORDER BY created_at ASC LIMIT 5"
+  ).all<any>();
+
+  const cacheKey = `ogp/site/${TEMPLATE_VERSION}-${fingerprint(rows.flatMap((r) => [r.id, r.name, r.avatar_key ?? r.avatar, r.theme_color, r.updated_at ?? ""]))}.png`;
+  const cached = await env.AVATARS?.get(cacheKey);
+  if (cached) return new Uint8Array(await cached.arrayBuffer());
+
+  const personas: OgpPersona[] = [];
+  for (const r of rows) {
+    personas.push({
+      id: r.id,
+      name: r.name,
+      avatar: r.avatar,
+      themeColor: r.theme_color,
+      avatarDataUri: r.avatar_type === "image" ? await loadAvatarDataUri(env, r.avatar_key) : null,
+    });
+  }
+
+  const { render } = await import("wasm-html-to-image");
+  const result = await render({ value: buildSiteOgpHtml({ personas }), width: 1200, height: 630, format: "png" });
+  const png = result.data as Uint8Array;
+  if (env.AVATARS) {
+    await env.AVATARS.put(cacheKey, png, { httpMetadata: { contentType: "image/png" } });
+  }
+  return png;
+}

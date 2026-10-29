@@ -1,8 +1,11 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { cacheFor } from "./cache";
+import { getSiteOgpImage } from "./services/ogp-image";
 import { Env } from "./types";
 import personasRouter from "./routes/personas";
 import adminPersonasRouter from "./routes/admin-personas";
+import adminSettingsRouter from "./routes/admin-settings";
 import sessionsRouter from "./routes/sessions";
 import memoriesRouter from "./routes/memories";
 
@@ -16,8 +19,21 @@ app.use("/api/memories/*", cors());
 // APIルートのマウント
 app.route("/api/personas", personasRouter);
 app.route("/api/admin/personas", adminPersonasRouter);
+app.route("/api/admin/settings", adminSettingsRouter);
 app.route("/api/sessions", sessionsRouter);
 app.route("/api/memories", memoriesRouter);
+
+// トップページのOGP画像 (SNS/チャットのリンクプレビュー用)
+app.get("/api/ogp.png", async (c) => {
+  try {
+    const png = await getSiteOgpImage(c.env);
+    cacheFor(3600, { maxAge: 3600 });
+    return new Response(png as BodyInit, { headers: { "Content-Type": "image/png" } });
+  } catch (err) {
+    console.error("Site OGP image generation failed:", err);
+    return c.json({ error: "OGP画像の生成に失敗しました" }, 500);
+  }
+});
 
 // システムステータス確認
 app.get("/api/health", (c) => {

@@ -50,16 +50,35 @@ function toChatMessage(p: Persona, turnIndex: number): ChatMessage {
   };
 }
 
+/** X (旧Twitter) の投稿画面を開くリンク。JS なしでも動くよう、普通のリンクにしている */
+function ShareOnX({ url, title }: { url: string; title: string }) {
+  const text = `${title}｜AIペルソナの対談`;
+  const href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2 text-sm font-medium text-zinc-100 transition-colors hover:border-zinc-500 hover:bg-zinc-800"
+    >
+      <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current" aria-hidden="true">
+        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+      </svg>
+      Xでシェア
+    </a>
+  );
+}
+
 type Detail = NonNullable<Awaited<ReturnType<typeof getSessionDetailFn>>>;
 
 function SessionPage() {
   const { id } = Route.useParams();
-  const { detail } = Route.useLoaderData();
+  const { detail, meta } = Route.useLoaderData();
   // 別の対談に移ったら状態ごと作り直す
-  return <SessionView key={id} id={id} detail={detail} />;
+  return <SessionView key={id} id={id} detail={detail} pageUrl={meta?.pageUrl ?? null} />;
 }
 
-function SessionView({ id, detail }: { id: string; detail: Detail | null }) {
+function SessionView({ id, detail, pageUrl }: { id: string; detail: Detail | null; pageUrl: string | null }) {
   const session = (detail?.session ?? null) as SessionSummary | null;
   const saved = detail?.messages ?? [];
   const [participants, setParticipants] = React.useState<Persona[]>((detail?.participants ?? []) as Persona[]);
@@ -295,7 +314,8 @@ function SessionView({ id, detail }: { id: string; detail: Detail | null }) {
       )}
 
       {status === "done" && (
-        <div className="pt-2 text-center">
+        <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 pt-2">
+          {pageUrl && session && <ShareOnX url={pageUrl} title={session.articleTitle} />}
           <Link to="/" className="text-sm text-indigo-300 hover:text-indigo-200">
             別のURLで対談する
           </Link>

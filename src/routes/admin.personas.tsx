@@ -178,7 +178,9 @@ function AdminPersonasPage() {
   const set = (patch: Partial<Persona>) => setDraft((d) => (d ? { ...d, ...patch } : d));
 
   return (
-    <div className="grid gap-8 md:grid-cols-[18rem_1fr]">
+    <div className="space-y-8">
+      <DailyLimitPanel />
+      <div className="grid gap-8 md:grid-cols-[18rem_1fr]">
       <aside className="space-y-3">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold">ペルソナ管理</h1>
@@ -394,6 +396,82 @@ function AdminPersonasPage() {
           </form>
         )}
       </section>
+      </div>
     </div>
+  );
+}
+
+/** 1日に新しく作れる対談の総数 (全利用者の合計)。日本時間の0時にリセットされる */
+function DailyLimitPanel() {
+  const [info, setInfo] = React.useState<{ dailyLimit: number; todayCount: number; maxDailyLimit: number } | null>(null);
+  const [value, setValue] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [message, setMessage] = React.useState<{ ok: boolean; text: string } | null>(null);
+
+  React.useEffect(() => {
+    api<{ dailyLimit: number; todayCount: number; maxDailyLimit: number }>("/api/admin/settings")
+      .then((r) => {
+        setInfo(r);
+        setValue(String(r.dailyLimit));
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!info) return null;
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 0 || n > info.maxDailyLimit) {
+      setMessage({ ok: false, text: `0〜${info.maxDailyLimit} の整数を入力してください` });
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    try {
+      const r = await postJson<typeof info>("/api/admin/settings", { dailyLimit: n }, "PUT");
+      setInfo(r);
+      setValue(String(r.dailyLimit));
+      setMessage({ ok: true, text: "保存しました" });
+    } catch (err: any) {
+      setMessage({ ok: false, text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={save} className="flex flex-wrap items-end gap-x-6 gap-y-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+      <div className="space-y-1">
+        <label htmlFor="daily-limit" className="block text-sm font-semibold text-zinc-100">
+          1日の対談数の上限
+        </label>
+        <p className="text-xs text-zinc-500">
+          全員の合計で、1日に新しく作れる対談の数です (日本時間の0時にリセット)。0 にすると新規作成を止めます。
+        </p>
+      </div>
+      <input
+        id="daily-limit"
+        type="number"
+        min={0}
+        max={info.maxDailyLimit}
+        step={1}
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="w-32 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-50 outline-none focus:border-indigo-500"
+      />
+      <button
+        type="submit"
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-400 disabled:opacity-50"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} 保存
+      </button>
+      <p className="text-sm text-zinc-400" aria-live="polite">
+        本日 <span className="font-semibold text-zinc-100">{info.todayCount}</span> / {info.dailyLimit} 件
+        {message && <span className={`ml-3 ${message.ok ? "text-emerald-400" : "text-red-300"}`}>{message.text}</span>}
+      </p>
+    </form>
   );
 }

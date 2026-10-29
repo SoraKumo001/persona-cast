@@ -4,12 +4,41 @@ import { ArrowRight, Link2, Loader2, MessagesSquare } from "lucide-react";
 import { PersonaAvatar } from "../client/components/PersonaAvatar";
 import { GenreCount, SessionListItem, formatDate, hostOf, postJson } from "../client/lib/api";
 import { getSessionList } from "../server-fns/sessions";
+import { getSiteOrigin } from "../server-fns/site-meta";
 
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>): { genre?: string } =>
     typeof search.genre === "string" && search.genre ? { genre: search.genre } : {},
   loaderDeps: ({ search }) => ({ genre: search.genre }),
-  loader: ({ deps }) => getSessionList({ data: deps.genre }),
+  loader: async ({ deps }) => {
+    const [list, origin] = await Promise.all([getSessionList({ data: deps.genre }), getSiteOrigin()]);
+    return { ...list, origin };
+  },
+  head: ({ loaderData }) => {
+    const title = "Persona-Cast | URLをAIペルソナが語り合う";
+    const description = "記事のURLを貼るだけで、個性の違うAIペルソナがその内容について対談します。";
+    const image = loaderData ? `${loaderData.origin}/api/ogp.png` : undefined;
+    return {
+      meta: [
+        { title },
+        { name: "description", content: description },
+        { property: "og:type", content: "website" },
+        { property: "og:site_name", content: "Persona-Cast" },
+        { property: "og:title", content: title },
+        { property: "og:description", content: description },
+        ...(loaderData ? [{ property: "og:url", content: `${loaderData.origin}/` }] : []),
+        ...(image
+          ? [
+              { property: "og:image", content: image },
+              { property: "og:image:width", content: "1200" },
+              { property: "og:image:height", content: "630" },
+              { name: "twitter:card", content: "summary_large_image" },
+              { name: "twitter:image", content: image },
+            ]
+          : [{ name: "twitter:card", content: "summary" }]),
+      ],
+    };
+  },
   component: HomePage,
 });
 

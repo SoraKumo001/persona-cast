@@ -3,6 +3,8 @@ import { streamSSE } from "hono/streaming";
 import { Env } from "../types";
 import { cacheFor } from "../cache";
 import { rateLimit } from "../middleware/rate-limit";
+import { ADULT_MESSAGE, isAdultHost } from "../services/adult-filter";
+import { countTodaySessions, getDailyLimit } from "../services/settings";
 import { scrapeUrl, ScrapeError } from "../services/scraper";
 import { normalizeUrl } from "../services/url-normalize";
 import { analyzeArticle, defaultTurns, PersonaCandidate } from "../services/analyze";
@@ -75,6 +77,9 @@ app.post("/", async (c) => {
     return c.json({ error: err.message }, 400);
   }
 
+  // 成人向けのドメインは、取得も分析もせずに断る (外部アクセス・LLMのコストをかけない)
+  if (isAdultHost(new URL(normalizedUrl).hostname)) return c.json({ error: ADULT_MESSAGE }, 400);
+
   // 1. 同じページの対談が既にあれば取得せずそれを返す
   const existingResponse = (row: any) => {
     const s = toSession(row);
@@ -87,6 +92,12 @@ app.post("/", async (c) => {
   };
   const existing = await findSessionByNormalizedUrl(c.env.DB, normalizedUrl);
   if (existing) return existingResponse(existing);
+
+  // 1日に作れる対談の総数 (管理者が設定。既定1000)。IPごとの制限より先に確認し、断られた送信は回数に数えない
+  const [dailyLimit, todayCount] = await Promise.all([getDailyLimit(c.env.DB), countTodaySessions(c.env.DB)]);
+  if (todayCount >= dailyLimit) {
+    return c.json({ error: "本日の新しい対談の上限に達しました。日本時間の0時を過ぎてからもう一度お試しください。" }, 429);
+  }
 
   // 新しい記事の取得 (外部アクセス + LLM) だけを制限する。保存済みの対談を開くだけなら対象外
   const limited =
@@ -102,6 +113,11 @@ app.post("/", async (c) => {
   } catch (err: any) {
     const status = err instanceof ScrapeError ? 400 : 502;
     return c.json({ error: `記事の取得に失敗しました: ${err.message}` }, status);
+  }
+
+  // リダイレクト先のドメイン、またはページ自身の成人向け宣言
+  if (article.adultRated || isAdultHost(new URL(article.url).hostname)) {
+    return c.json({ error: ADULT_MESSAGE }, 400);
   }
 
   // canonical / リダイレクト後のURLで一致する既存対談があればそれを返す
@@ -128,6 +144,9 @@ app.post("/", async (c) => {
     searchSimilarMemories(`${article.title}
 ${article.content.slice(0, 300)}`, c.env, 3, 0.45),
   ]);
+
+  // 記事の内容が成人向けと判定されたら、保存せずに断る
+  if (analysis.adult) return c.json({ error: ADULT_MESSAGE }, 400);
 
   // 4. セッションをD1に保存
   await c.env.DB.prepare(
