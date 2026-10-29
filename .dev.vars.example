@@ -1,0 +1,7 @@
+# OpenCode Go API Key (OpenCode Consoleから取得したキー)
+OPENCODE_API_KEY="your-opencode-api-key-here"
+
+# オプション設定
+OPENCODE_BASE_URL="https://opencode.ai/inference/go/openai/v1"
+OPENCODE_DEFAULT_MODEL="deepseek-v4.1-flash"
+EMBEDDING_MODEL="@cf/baai/bge-m3"
