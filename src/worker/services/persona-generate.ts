@@ -1,5 +1,6 @@
 import { Env } from "../types";
 import { ChatMessage, generateChatCompletion } from "./llm";
+import { buildPersonaGenerateMessages } from "../prompts";
 
 export interface PersonaDraft {
   name: string;
@@ -77,38 +78,13 @@ export function buildPersonaMessages(
   base: Partial<PersonaDraft> | null,
   others: PersonaBrief[]
 ): ChatMessage[] {
-  const system = [
-    "あなたは、記事について語り合う対談番組の出演者(AIペルソナ)を設計する担当です。",
-    "指示に従ってペルソナを1人分設計し、次のJSONだけを出力してください(前置き・コードブロック・解説は不要)。",
-    `{"name": "名前 (英字表記を括弧で添える)", "role": "肩書き", "avatar": "絵文字1つ", "themeColor": "#RRGGBB", "personality": "性格・価値観", "speakingStyle": "口調・話し方"}`,
-    "",
-    "書き方の基準:",
-    `- name は${LIMITS.name}文字以内、role は${LIMITS.role}文字以内。`,
-    "- personality: 何を重視し、何に厳しく/甘いか、議論でどんな視点を持ち込むかを2〜4文で具体的に。",
-    '- speakingStyle: 一人称、語尾、口癖、典型的なセリフ例を「」で2〜3個含めて、口調を再現できるように。',
-    "- themeColor: 画面で読みやすい中程度の明るさの色。他の出演者と被らない色相にする。",
-    "- 特定の実在人物・団体の名前や、差別的・攻撃的な性格づけは避ける。",
-    "",
-    "出力例:",
-    JSON.stringify(EXAMPLE),
-  ];
-
-  if (others.length > 0) {
-    system.push("", "既存の出演者 (個性・肩書き・色が被らないようにする):", ...others.map((o) => `- ${o.name} (${o.role}) 色: ${o.themeColor}`));
-  }
-
-  const user = base
-    ? [
-        "次の現在のペルソナを、指示に従って修正してください。指示に関係しない項目は、できるだけそのまま残します。",
-        `現在: ${JSON.stringify(base)}`,
-        `指示: ${instruction}`,
-      ].join("\n")
-    : `次の指示でペルソナを新しく設計してください。\n指示: ${instruction}`;
-
-  return [
-    { role: "system", content: system.join("\n") },
-    { role: "user", content: user },
-  ];
+  return buildPersonaGenerateMessages({
+    instruction,
+    base,
+    others,
+    example: EXAMPLE,
+    limits: { name: LIMITS.name, role: LIMITS.role },
+  });
 }
 
 /** 指示からペルソナの下書きを生成する (保存はしない)。解釈できない出力は例外にする */
