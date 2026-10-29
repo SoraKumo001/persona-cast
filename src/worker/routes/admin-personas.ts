@@ -3,6 +3,12 @@ import { Env, Persona } from "../types";
 import { ensureDatabaseTables } from "../presets";
 import { requireAccess } from "../middleware/access";
 import { PERSONA_COLUMNS, toPersona } from "../services/persona-store";
+import {
+  INSTRUCTION_MAX_CHARS,
+  PersonaDraft,
+  generatePersonaDraft,
+  isLlmConfigured,
+} from "../services/persona-generate";
 
 const app = new Hono<{ Bindings: Env; Variables: { adminEmail: string } }>();
 
@@ -51,6 +57,35 @@ app.get("/", async (c) => {
     `SELECT ${PERSONA_COLUMNS} FROM personas ORDER BY created_at ASC`
   ).all();
   return c.json({ personas: results.map(toPersona) });
+});
+
+// AIによるペルソナ生成: 指示から下書きを返す(保存はしない)。base があれば、その内容を指示で修正する
+app.post("/generate", async (c) => {
+  if (!isLlmConfigured(c.env)) {
+    return c.json({ error: "LLM (OPENCODE_API_KEY) が未設定のため、AI生成は使えません" }, 503);
+  }
+  const body = await c.req
+    .json<{ instruction?: string; base?: Partial<PersonaDraft> }>()
+    .catch(() => ({}) as { instruction?: string; base?: Partial<PersonaDraft> });
+  const instruction = body.instruction?.trim();
+  if (!instruction) return c.json({ error: "指示を入力してください" }, 400);
+  if (instruction.length > INSTRUCTION_MAX_CHARS) {
+    return c.json({ error: `指示は${INSTRUCTION_MAX_CHARS}文字以内にしてください` }, 400);
+  }
+
+  const { results } = await c.env.DB.prepare(
+    "SELECT name, role, theme_color as themeColor FROM personas WHERE archived_at IS NULL ORDER BY created_at ASC"
+  ).all<{ name: string; role: string; themeColor: string }>();
+  // 修正対象の本人は「被らないようにする」一覧から外す
+  const others = results.filter((p) => p.name !== body.base?.name);
+
+  try {
+    const draft = await generatePersonaDraft(c.env, instruction, body.base ?? null, others);
+    return c.json({ draft });
+  } catch (err: any) {
+    console.error("Persona generation failed:", err);
+    return c.json({ error: err.message || "生成に失敗しました" }, 502);
+  }
 });
 
 app.post("/", async (c) => {

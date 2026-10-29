@@ -1,6 +1,6 @@
 import React from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Archive, ImagePlus, Loader2, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import { Archive, ImagePlus, Loader2, Plus, RotateCcw, Save, Sparkles, Trash2, Undo2 } from "lucide-react";
 import { PersonaAvatar } from "../client/components/PersonaAvatar";
 import { ApiError, Persona, api, postJson } from "../client/lib/api";
 
@@ -43,6 +43,12 @@ function AdminPersonasPage() {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [denied, setDenied] = React.useState(false);
+
+  // AI生成: 結果は下書きとして画面に反映するだけで、保存は人が確認してから行う
+  const [aiInstruction, setAiInstruction] = React.useState("");
+  const [aiBusy, setAiBusy] = React.useState(false);
+  const [aiError, setAiError] = React.useState<string | null>(null);
+  const [aiPrev, setAiPrev] = React.useState<{ draft: Persona | null } | null>(null);
 
   const load = React.useCallback(async () => {
     try {
@@ -88,6 +94,44 @@ function AdminPersonasPage() {
       setDraft(res.persona);
       await load();
     });
+
+  /** modify=true なら編集中の内容を指示で修正し、false なら指示から新しく作る */
+  const generate = async (modify: boolean) => {
+    const instruction = aiInstruction.trim();
+    if (!instruction || aiBusy) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const base =
+        modify && draft
+          ? {
+              name: draft.name,
+              role: draft.role,
+              avatar: draft.avatar,
+              themeColor: draft.themeColor,
+              personality: draft.personality,
+              speakingStyle: draft.speakingStyle,
+            }
+          : undefined;
+      const res = await postJson<{ draft: Pick<Persona, "name" | "role" | "avatar" | "themeColor" | "personality" | "speakingStyle"> }>(
+        "/api/admin/personas/generate",
+        { instruction, base }
+      );
+      setAiPrev({ draft });
+      // 修正のときは id・画像アバターを維持し、新規のときは未保存の新規ペルソナにする
+      setDraft(modify && draft ? { ...draft, ...res.draft } : { ...BLANK, ...res.draft });
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const undoAi = () => {
+    if (!aiPrev) return;
+    setDraft(aiPrev.draft);
+    setAiPrev(null);
+  };
 
   const uploadAvatar = (file: File) =>
     run(async () => {
@@ -172,6 +216,64 @@ function AdminPersonasPage() {
       </aside>
 
       <section>
+        <div className="mb-6 space-y-3 rounded-2xl border border-indigo-500/30 bg-indigo-500/5 p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-zinc-100">
+            <Sparkles className="h-4 w-4 text-indigo-300" /> AIで生成・修正
+          </h2>
+          <label htmlFor="ai-instruction" className="sr-only">
+            AIへの指示
+          </label>
+          <textarea
+            id="ai-instruction"
+            rows={2}
+            maxLength={500}
+            value={aiInstruction}
+            onChange={(e) => setAiInstruction(e.target.value)}
+            placeholder={draft ? "例: もっと辛口に / 口調を関西弁に / 一人称を「僕」に" : "例: 皮肉屋のベテラン編集者 / 子どもにもわかりやすく話す科学の先生"}
+            className="w-full rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm text-zinc-50 outline-none focus:border-indigo-500"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => generate(false)}
+              disabled={aiBusy || !aiInstruction.trim()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500 px-3.5 py-2 text-xs font-semibold text-white hover:bg-indigo-400 disabled:opacity-40"
+            >
+              {aiBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+              新しく作る
+            </button>
+            {draft && (
+              <button
+                type="button"
+                onClick={() => generate(true)}
+                disabled={aiBusy || !aiInstruction.trim()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-500/50 px-3.5 py-2 text-xs font-semibold text-indigo-200 hover:bg-indigo-500/10 disabled:opacity-40"
+              >
+                <Sparkles className="h-3.5 w-3.5" /> 編集中の内容を修正
+              </button>
+            )}
+            {aiPrev && (
+              <button
+                type="button"
+                onClick={undoAi}
+                disabled={aiBusy}
+                className="inline-flex items-center gap-1.5 px-2 py-2 text-xs text-zinc-400 hover:text-zinc-100"
+              >
+                <Undo2 className="h-3.5 w-3.5" /> 元に戻す
+              </button>
+            )}
+            {aiBusy && <span className="text-xs text-zinc-400">生成中…</span>}
+          </div>
+          {aiPrev && !aiBusy && (
+            <p className="text-xs text-zinc-400">AIの下書きを反映しました。内容を確認・調整して「保存」してください。</p>
+          )}
+          {aiError && (
+            <p role="alert" className="text-xs text-red-300">
+              {aiError}
+            </p>
+          )}
+        </div>
+
         {!draft ? (
           <p className="py-16 text-center text-sm text-zinc-500">左の一覧から選ぶか、「新規」で作成します。</p>
         ) : (
