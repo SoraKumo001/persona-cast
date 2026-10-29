@@ -5,14 +5,16 @@ import { DEFAULT_GENRE, GENRES, Genre, guessGenre, isGenre } from "./genres";
 import { buildAnalyzeMessages } from "../prompts";
 
 const SUMMARY_MAX_CHARS = 200;
-const MIN_PERSONAS = 2;
-const MAX_PERSONAS = 3;
+const MIN_PERSONAS = 3;
+const MAX_PERSONAS = 4;
 
 export interface PersonaCandidate {
   id: string;
   name: string;
   role: string;
   personality: string;
+  /** これまでに出演した対談の数 (偏りを避けるため選定に使う) */
+  appearances?: number;
 }
 
 export interface Analysis {
@@ -103,6 +105,9 @@ export async function analyzeArticle(
   if (!apiKey || apiKey === "your-opencode-api-key-here" || !article.content) return fallback;
 
   try {
+    // 先頭の候補に偏らないよう、URLごとに候補の並びを回転させる
+    const offset = hash(article.normalizedUrl) % candidates.length;
+    const rotated = [...candidates.slice(offset), ...candidates.slice(0, offset)];
     const text = await generateChatCompletion(
       buildAnalyzeMessages({
         title: article.title,
@@ -110,7 +115,7 @@ export async function analyzeArticle(
         genres: GENRES,
         minPersonas: MIN_PERSONAS,
         maxPersonas: MAX_PERSONAS,
-        candidates,
+        candidates: rotated,
       }),
       env,
       sessionId

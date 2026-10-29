@@ -122,7 +122,7 @@ export function buildAnalyzeMessages(params: {
   genres: readonly string[];
   minPersonas: number;
   maxPersonas: number;
-  candidates: { id: string; name: string; role: string; personality: string }[];
+  candidates: { id: string; name: string; role: string; personality: string; appearances?: number }[];
 }): ChatMessage[] {
   return [
     {
@@ -132,7 +132,7 @@ export function buildAnalyzeMessages(params: {
         minPersonas: params.minPersonas,
         maxPersonas: params.maxPersonas,
         personaList: params.candidates
-          .map((c) => `- id: ${c.id} / ${c.name} (${c.role}) / ${c.personality.slice(0, 80)}`)
+          .map((c) => `- id: ${c.id} / ${c.name} (${c.role}) / 出演${c.appearances ?? 0}回 / ${c.personality.slice(0, 80)}`)
           .join("\n"),
       }),
     },

@@ -99,7 +99,9 @@ app.post("/", async (c) => {
   }
 
   const { results: candidates } = await c.env.DB.prepare(
-    "SELECT id, name, role, personality FROM personas WHERE archived_at IS NULL ORDER BY created_at ASC"
+    `SELECT id, name, role, personality,
+            (SELECT COUNT(*) FROM sessions s WHERE s.persona_ids LIKE '%"' || personas.id || '"%') AS appearances
+     FROM personas WHERE archived_at IS NULL ORDER BY created_at ASC`
   ).all<PersonaCandidate>();
   if (candidates.length === 0) {
     return c.json({ error: "対談に参加できるペルソナがいません。管理画面でペルソナを追加してください" }, 409);

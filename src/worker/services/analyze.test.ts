@@ -15,10 +15,10 @@ describe("parseAnalysis", () => {
     expect(parseAnalysis(text, candidates)).toEqual({ summary: "s", genre: undefined, personaIds: ["ren"] });
   });
 
-  test("ペルソナは最大3人まで", () => {
-    const four = [...candidates, { id: "x", name: "x", role: "r", personality: "p" }];
-    const text = '{"personaIds":["ken","yuki","ren","x"]}';
-    expect(parseAnalysis(text, four).personaIds).toEqual(["ken", "yuki", "ren"]);
+  test("ペルソナは最大4人まで", () => {
+    const extra = ["x", "y"].map((id) => ({ id, name: id, role: "r", personality: "p" }));
+    const text = '{"personaIds":["ken","yuki","ren","x","y"]}';
+    expect(parseAnalysis(text, [...candidates, ...extra]).personaIds).toEqual(["ken", "yuki", "ren", "x"]);
   });
 
   test("JSONでなければ空を返す", () => {
@@ -31,7 +31,7 @@ describe("fallbackPersonas", () => {
   test("同じseedなら同じ顔ぶれで、重複しない", () => {
     const a = fallbackPersonas(candidates, "https://a.example/x");
     expect(a).toEqual(fallbackPersonas(candidates, "https://a.example/x"));
-    expect(new Set(a).size).toBe(2);
+    expect(new Set(a).size).toBe(3);
   });
   test("候補が1人ならその1人だけ", () => {
     expect(fallbackPersonas(candidates.slice(0, 1), "s")).toEqual(["ken"]);
