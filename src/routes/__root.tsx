@@ -39,7 +39,7 @@ function RootComponent() {
               <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500 text-white">
                 <Mic className="h-4 w-4" />
               </span>
-              Persona-Cast
+              <span className="hidden sm:inline">Persona-Cast</span>
             </Link>
             <nav className="flex items-center gap-1 text-sm" aria-label="メイン">
               {NAV.map((item) => (
@@ -47,7 +47,7 @@ function RootComponent() {
                   key={item.to}
                   to={item.to}
                   activeOptions={{ exact: item.to === "/" }}
-                  className="rounded-lg px-3 py-1.5 text-zinc-400 transition-colors hover:text-zinc-100 data-[status=active]:bg-zinc-800 data-[status=active]:text-zinc-50"
+                  className="whitespace-nowrap rounded-lg px-2.5 py-1.5 text-zinc-400 sm:px-3 transition-colors hover:text-zinc-100 data-[status=active]:bg-zinc-800 data-[status=active]:text-zinc-50"
                 >
                   {item.label}
                 </Link>

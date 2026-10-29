@@ -18,17 +18,18 @@ export function OgpCard({ url, title, summary, ogp, loading }: OgpCardProps) {
 
   return (
     <article
-      className={`overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60 sm:flex ${loading ? "opacity-60" : ""}`}
+      className={`overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/60 sm:flex sm:items-center ${loading ? "opacity-60" : ""}`}
       aria-busy={loading}
     >
       {showImage && (
-        <div className="aspect-[1.91/1] bg-zinc-800 sm:aspect-auto sm:w-56 sm:shrink-0">
+        // OGP画像の標準比率(1.91:1)の枠に、切り抜かず全体が収まるよう表示する
+        <div className="aspect-[1.91/1] bg-zinc-800 sm:w-80 sm:shrink-0">
           <img
             src={ogp!.image!}
             alt=""
             loading="lazy"
             referrerPolicy="no-referrer"
-            className="h-full w-full object-cover"
+            className="h-full w-full object-contain"
             onError={() => setImageBroken(true)}
           />
         </div>
