@@ -58,3 +58,75 @@
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-zinc-600);
 }
+
+/* ページ遷移中のインジケーター (上部プログレスバー) */
+@keyframes page-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(-10%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-page-progress {
+  animation: page-progress 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* View Transition によるページ遷移のクロスフェード */
+::view-transition-group(root) {
+  animation-duration: 0.18s;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+::view-transition-old(root) {
+  animation: 0.15s ease-out both vt-fade-out;
+}
+
+::view-transition-new(root) {
+  animation: 0.18s ease-in both vt-fade-in;
+}
+
+@keyframes vt-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vt-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ヘッダーは View Transition 中も独立させ、ちらつきを防ぐ */
+@supports (view-transition-name: app-header) {
+  header {
+    view-transition-name: app-header;
+  }
+
+  ::view-transition-group(app-header) {
+    animation-duration: 0s;
+  }
+}
+
+/* アニメーション低減設定の尊重 */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(root),
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+  .animate-page-progress {
+    animation: none !important;
+  }
+}

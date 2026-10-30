@@ -1,4 +1,12 @@
-import { createRootRoute, HeadContent, Link, Outlet, Scripts, useRouterState } from "@tanstack/react-router";
+import {
+  createRootRoute,
+  HeadContent,
+  Link,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useRouterState,
+} from "@tanstack/react-router";
 import { THEME_INIT_SCRIPT, ThemeToggle } from "../client/components/ThemeToggle";
 import { getWebAnalyticsToken } from "../server-fns/site-meta";
 import "../client/index.css";
@@ -30,6 +38,21 @@ const NAV = [
   { to: "/admin", label: "管理" },
 ] as const;
 
+function NavigationProgressBar() {
+  const isPending = useRouterState({ select: (s) => s.status === "pending" });
+
+  return (
+    <div
+      aria-hidden="true"
+      className={`pointer-events-none fixed top-0 right-0 left-0 z-50 h-0.5 transition-opacity duration-200 ${
+        isPending ? "opacity-100" : "opacity-0"
+      }`}
+    >
+      <div className="animate-page-progress h-full w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-400" />
+    </div>
+  );
+}
+
 function RootComponent() {
   const webAnalyticsToken = Route.useLoaderData();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -45,6 +68,7 @@ function RootComponent() {
         <HeadContent />
       </head>
       <body className="min-h-screen bg-zinc-950 text-zinc-100 antialiased selection:bg-indigo-500 selection:text-white">
+        <NavigationProgressBar />
         <header className="sticky top-0 z-20 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
             <Link className="flex items-center gap-2 font-semibold tracking-tight" to="/">
@@ -82,6 +106,7 @@ function RootComponent() {
             src="https://static.cloudflareinsights.com/beacon.min.js"
           />
         ) : null}
+        <ScrollRestoration />
         <Scripts />
       </body>
     </html>
