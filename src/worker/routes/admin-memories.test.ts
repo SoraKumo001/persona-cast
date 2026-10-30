@@ -155,4 +155,30 @@ describe("admin memories resync", () => {
     const res = await setup([chunk(1, [1, 0])], { failUpsert: true }).call("/resync", {});
     expect(res.status).toBe(502);
   });
+
+  test("?all=1 は保存済みの埋め込みも含めて全件を作り直す", async () => {
+    const chunks = [chunk(1, [1, 0]), chunk(2, [0, 1]), chunk(3, [1, 1])];
+    const { call, upserts, updates } = setup(chunks);
+    const res = await call("/resync?all=1", {});
+    expect(await res.json()).toEqual({
+      mode: "all",
+      processed: 3,
+      regenerated: 3,
+      failed: 0,
+      total: 3,
+      next: null,
+    });
+    expect(updates).toHaveLength(3);
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].map((r) => r.id)).toEqual(["mem_0001", "mem_0002", "mem_0003"]);
+    expect(upserts[0][0].values).toHaveLength(1024);
+  });
+
+  test("?all=1 で AI が無ければ 503 (ダミーは作らない)", async () => {
+    const { call, upserts, updates } = setup([chunk(1, [1, 0])], { ai: false });
+    const res = await call("/resync?all=1", {});
+    expect(res.status).toBe(503);
+    expect(upserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
+  });
 });

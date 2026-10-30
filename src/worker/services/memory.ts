@@ -220,6 +220,213 @@ export function toVectorRecord(
   };
 }
 
+/** 埋め込みに渡す本文。保存時とバックフィルで同じ形にしないとベクトルが揃わない */
+function memoryChunkEmbeddingText(chunk: { articleTitle: string; keyQuotes: string; topicSummary: string }): string {
+  return `${chunk.articleTitle}\n${chunk.topicSummary}\n${chunk.keyQuotes}`;
+}
+
+/** バックフィルの既定ページ幅 (1回のAI呼び出しとD1更新をこの件数ずつに区切る) */
+const BACKFILL_PAGE_SIZE = 20;
+/** 1回の実行で処理する上限。呼び出し側が繰り返しても無限に走らないようにする */
+const BACKFILL_MAX_ROWS = 200;
+export interface MemoryEmbeddingBackfillOptions {
+  /** この id より大きい行から始める (前回の next を渡して続きから) */
+  after?: string;
+  /** 1ページの件数 */
+  batchSize?: number;
+  /** 1回の実行で処理する最大件数 */
+  maxRows?: number;
+}
+
+export interface MemoryEmbeddingBackfillResult {
+  /** Workers AI が使えず中断した */
+  aborted: boolean;
+  /** 失敗した件数 (埋め込み生成・D1更新・Vectorize登録) */
+  failed: number;
+  /** 続きの開始位置。null なら全件処理済み */
+  next: string | null;
+  /** 今回処理した件数 */
+  processed: number;
+  /** memory_chunks の総件数 (進捗表示用) */
+  total: number;
+  /** embedding_json を更新できた件数 */
+  updated: number;
+}
+
+/** 1行分の再生成結果。unavailable は AI 側の異常で、以降も続かないと判断する */
+type RowRegenResult = { status: "updated"; embedding: number[] } | { status: "failed" } | { status: "unavailable" };
+
+/** 1行分の埋め込みを作り直して D1 に書き戻す。DB の失敗は failed として返し、呼び出し側を止めない */
+async function regenerateRowEmbedding(env: Env, row: MemoryChunkDbRow): Promise<RowRegenResult> {
+  const embedding = await generateEmbedding(
+    memoryChunkEmbeddingText({
+      articleTitle: row.article_title,
+      topicSummary: row.topic_summary,
+      keyQuotes: row.key_quotes,
+    }),
+    env
+  );
+  if (!embedding) {
+    return { status: "unavailable" };
+  }
+  try {
+    await env.DB.prepare("UPDATE memory_chunks SET embedding_json = ? WHERE id = ?")
+      .bind(JSON.stringify(embedding), row.id)
+      .run();
+  } catch (err) {
+    console.warn(`[memory-backfill] failed to update ${row.id}:`, err);
+    return { status: "failed" };
+  }
+  return { status: "updated", embedding };
+}
+
+/** 1ページ分の結果 */
+interface PageBackfillResult {
+  aborted: boolean;
+  /** ページを最後まで読んだ (続きが無い) */
+  exhausted: boolean;
+  failed: number;
+  lastId: string | null;
+  processed: number;
+  updated: number;
+}
+
+/** 1ページ分を処理する。埋め込みの生成と D1 更新をしたうえで Vectorize へまとめて登録する */
+async function backfillPage(env: Env, after: string, pageSize: number): Promise<PageBackfillResult> {
+  const { results } = await env.DB.prepare(
+    `SELECT id, session_id, article_title, source_url, topic_summary, key_quotes, persona_ids, embedding_json, created_at
+     FROM memory_chunks WHERE id > ? ORDER BY id ASC LIMIT ?`
+  )
+    .bind(after, pageSize)
+    .all<MemoryChunkDbRow>();
+
+  const rows = results ?? [];
+  const page: PageBackfillResult = {
+    aborted: false,
+    exhausted: rows.length < pageSize,
+    failed: 0,
+    lastId: null,
+    processed: 0,
+    updated: 0,
+  };
+  const records: ReturnType<typeof toVectorRecord>[] = [];
+
+  for (const row of rows) {
+    const regenerated = await regenerateRowEmbedding(env, row);
+    if (regenerated.status === "unavailable") {
+      // ここに来るのは AI 側の異常。以降も失敗する可能性が高いので中断する
+      console.warn(`[memory-backfill] embedding unavailable at ${row.id}; aborting`);
+      page.aborted = true;
+      break;
+    }
+    if (regenerated.status === "failed") {
+      page.failed++;
+    } else {
+      page.updated++;
+      if (env.VECTORIZE) {
+        records.push(
+          toVectorRecord(
+            {
+              id: row.id,
+              sessionId: row.session_id,
+              articleTitle: row.article_title,
+              sourceUrl: row.source_url,
+              topicSummary: row.topic_summary,
+              keyQuotes: row.key_quotes,
+              personaIds: parsePersonaIds(row.persona_ids),
+            },
+            regenerated.embedding,
+            row.created_at
+          )
+        );
+      }
+    }
+    page.processed++;
+    page.lastId = row.id;
+  }
+
+  if (records.length > 0 && env.VECTORIZE) {
+    try {
+      await env.VECTORIZE.upsert(records);
+    } catch (err) {
+      page.failed += records.length;
+      console.warn("[memory-backfill] Vectorize upsert failed:", err);
+    }
+  }
+
+  return page;
+}
+
+/**
+ * 既存の memory_chunks 全件の埋め込みを作り直す。
+ * 旧ダミーベクトルは本物と区別できないため、embedding_json の有無に関わらず再生成する。
+ * - AI 未接続・生成不能になった時点で中断する (ダミーは保存しない)
+ * - 1件の失敗では止めず、失敗件数を数えて続行する
+ * - id のキーセットページング + maxRows の上限で無限ループを防ぐ
+ */
+export async function backfillAllMemoryEmbeddings(
+  env: Env,
+  options: MemoryEmbeddingBackfillOptions = {}
+): Promise<MemoryEmbeddingBackfillResult> {
+  const batchSize = Math.max(1, options.batchSize ?? BACKFILL_PAGE_SIZE);
+  const maxRows = Math.max(1, options.maxRows ?? BACKFILL_MAX_ROWS);
+  let after = options.after ?? "";
+
+  const totalRow = await env.DB.prepare("SELECT COUNT(*) as total FROM memory_chunks").first<{ total: number }>();
+  const total = totalRow?.total ?? 0;
+
+  const result: MemoryEmbeddingBackfillResult = {
+    processed: 0,
+    updated: 0,
+    failed: 0,
+    total,
+    next: null,
+    aborted: false,
+  };
+
+  if (!env.AI) {
+    // AI が無い環境で走らせても全部失敗するだけなので、最初に止める
+    console.warn("[memory-backfill] AI binding unavailable; aborting");
+    result.aborted = true;
+    return result;
+  }
+
+  if (total === 0) {
+    return result;
+  }
+
+  console.log(`[memory-backfill] start: ${total} 件 (after=${after || "-"})`);
+
+  while (result.processed < maxRows) {
+    const pageSize = Math.min(batchSize, maxRows - result.processed);
+    const page = await backfillPage(env, after, pageSize);
+
+    result.processed += page.processed;
+    result.updated += page.updated;
+    result.failed += page.failed;
+    console.log(`[memory-backfill] ${result.processed}/${total} 件 (更新 ${result.updated} / 失敗 ${result.failed})`);
+
+    if (page.aborted) {
+      result.aborted = true;
+      break;
+    }
+    if (page.exhausted) {
+      break;
+    }
+    if (page.lastId) {
+      after = page.lastId;
+      result.next = page.lastId;
+    }
+  }
+
+  // 中断したときに next を返すと、呼び出し側が同じ範囲を無限にリトライしてしまう
+  result.next = result.aborted ? null : result.next;
+  console.log(
+    `[memory-backfill] done: 処理 ${result.processed}/${total} 件 / 更新 ${result.updated} / 失敗 ${result.failed}${result.aborted ? " (中断)" : ""}`
+  );
+  return result;
+}
+
 /**
  * 対談終了後に新しい記憶チャンクをD1およびVectorizeに永続化
  */
@@ -235,8 +442,7 @@ export async function saveMemoryChunk(
   },
   env: Env
 ): Promise<void> {
-  const textToEmbed = `${chunk.articleTitle}\n${chunk.topicSummary}\n${chunk.keyQuotes}`;
-  const embedding = await generateEmbedding(textToEmbed, env);
+  const embedding = await generateEmbedding(memoryChunkEmbeddingText(chunk), env);
   const now = new Date().toISOString();
 
   // 1. D1 に保存 (本物の埋め込みが無いときは embedding_json を NULL にし、検索側で除外させる)

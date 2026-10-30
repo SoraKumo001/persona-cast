@@ -1,8 +1,8 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import type { MemoryChunkDbRow } from "../db-types";
 import { errorMessage } from "../errors";
 import { requireAccess } from "../middleware/access";
-import { generateEmbedding, toVectorRecord } from "../services/memory";
+import { backfillAllMemoryEmbeddings, generateEmbedding, toVectorRecord } from "../services/memory";
 import type { Env } from "../types";
 
 const app = new Hono<{ Bindings: Env; Variables: { adminEmail: string } }>();
@@ -11,6 +11,8 @@ app.use("*", requireAccess);
 
 /** 1回の呼び出しで処理する件数 (埋め込みの生成と Vectorize への書き込みを、1回の実行に収める) */
 const BATCH = 50;
+/** ?all=1 (全件再生成) の1回あたりの上限。AI 呼び出しが増えるため小さくする */
+const ALL_BATCH = 20;
 
 function parseEmbedding(json: string | null): number[] | null {
   if (!json) {
@@ -30,13 +32,47 @@ app.get("/", async (c) => {
   return c.json({ total: row?.total ?? 0, vectorize: !!c.env.VECTORIZE });
 });
 
+// 全件モード (?all=1)。埋め込みの有無に関わらず作り直す。after から ALL_BATCH 件ずつ返し、画面が繰り返す
+async function resyncAll(
+  c: Context<{ Bindings: Env; Variables: { adminEmail: string } }>,
+  after: string
+): Promise<Response> {
+  if (!c.env.AI) {
+    return c.json({ error: "Workers AI (AI) が未設定です" }, 503);
+  }
+  try {
+    const result = await backfillAllMemoryEmbeddings(c.env, { after, maxRows: ALL_BATCH });
+    const body = {
+      mode: "all",
+      processed: result.processed,
+      regenerated: result.updated,
+      failed: result.failed,
+      total: result.total,
+      next: result.next,
+    };
+    if (result.aborted) {
+      return c.json({ ...body, error: "Workers AI で埋め込みを生成できなかったため中断しました" }, 502);
+    }
+    return c.json(body);
+  } catch (err) {
+    console.error("Memory backfill failed:", err);
+    return c.json({ error: `記憶の再生成に失敗しました: ${errorMessage(err)}` }, 502);
+  }
+}
+
 // D1 の記憶を Vectorize に登録し直す。after (前回の next) の次から BATCH 件ずつ。画面が next がなくなるまで繰り返す
+// ?all=1 を付けると、埋め込みの有無に関わらず全件を作り直す (旧ダミーベクトルの掃除用)
 app.post("/resync", async (c) => {
   if (!c.env.VECTORIZE) {
     return c.json({ error: "Vectorize (VECTORIZE) が未設定です" }, 503);
   }
   const body = await c.req.json<{ after?: unknown }>().catch(() => ({}) as { after?: unknown });
-  const after = typeof body.after === "string" ? body.after : "";
+  const queryAfter = c.req.query("after");
+  const after = typeof body.after === "string" ? body.after : (queryAfter ?? "");
+
+  if (["1", "true"].includes(c.req.query("all") ?? "")) {
+    return resyncAll(c, after);
+  }
 
   const { results } = await c.env.DB.prepare(
     `SELECT id, session_id, article_title, source_url, topic_summary, key_quotes, persona_ids, embedding_json, created_at
