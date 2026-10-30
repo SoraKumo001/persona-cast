@@ -26,6 +26,8 @@ export default defineConfig({
       ACCESS_TEAM_DOMAIN: bindings.secret(),
       ACCESS_AUD: bindings.secret(),
       ACCESS_DISABLED: bindings.secret(), // ローカル開発専用 (localhost でのみ有効)
+      // A/B比較用: "off" で対談前の立場生成 (Phase 1) を止める。未設定は ON のまま
+      STANCE_PILOT: bindings.secret(),
       AVATARS: bindings.r2({ name: "persona-cast-avatars" }),
       // アクセス状況: 記録先のデータセット名は src/worker/services/analytics-track.ts の DATASET と同じにする
       ANALYTICS: bindings.analyticsEngineDataset({ name: "persona_cast_events" }),

@@ -1,6 +1,7 @@
 import { errorMessage } from "../errors";
 import { buildStanceMessages } from "../prompts";
 import type { Env, Persona } from "../types";
+import { extractJsonObject } from "./json-object";
 import { type ChatMessage, generateChatCompletion } from "./llm";
 
 /** 立場の最大文字数。プロンプト・パース後の両方でこの長さに収める */
@@ -30,6 +31,15 @@ export interface GenerateStancesOptions {
 /** 項目ごとの上限。合計が 200 字に収まるよう、プロンプトの指定と揃えておく */
 const STANCE_FIELD_LIMITS = { claim: 40, reason: 70, counter: 50 } as const;
 
+/**
+ * 立場 JSON は 3 項目 (合計 200 字) だけだが、日本語はトークン効率が悪く、
+ * 途中で切れると JSON として読めなくなる。余裕を持って長めに取る
+ */
+const STANCE_MAX_OUTPUT_TOKENS = 800;
+
+/** 立場生成の試行回数 (読めない応答・失敗時に1回だけやり直す) */
+const STANCE_ATTEMPTS = 2;
+
 function clampText(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
@@ -49,7 +59,8 @@ function extractField(raw: string, name: string): string {
 
 /**
  * LLMの応答から立場を取り出す。
- * コードフェンスや前置きが付いていてもよく、3項目が空なら null (立場なしとして扱う)。
+ * コードフェンスや前置きが付いていてもよく、トークン上限で切れた JSON も補完して読む。
+ * 3項目が空なら null (立場なしとして扱う)。
  */
 export function parseStance(raw: string): string | null {
   const cleaned = raw
@@ -57,19 +68,7 @@ export function parseStance(raw: string): string | null {
     .replace(/```/gu, "")
     .trim();
 
-  const start = cleaned.indexOf("{");
-  const end = cleaned.lastIndexOf("}");
-  let parsed: Record<string, unknown> = {};
-  if (start >= 0 && end > start) {
-    try {
-      const value: unknown = JSON.parse(cleaned.slice(start, end + 1));
-      if (value && typeof value === "object") {
-        parsed = value as Record<string, unknown>;
-      }
-    } catch {
-      parsed = {};
-    }
-  }
+  const parsed = extractJsonObject(cleaned)?.raw ?? {};
 
   const claim = toText(parsed.claim) || extractField(cleaned, "claim");
   const reason = toText(parsed.reason) || extractField(cleaned, "reason");
@@ -112,9 +111,28 @@ export async function generateStances(
         articleKeyQuotes: params.articleKeyQuotes,
         keyPoints: params.keyPoints,
       });
-      const raw = await generate(messages, env, sessionId, options.modelName, { maxOutputTokens: 400 });
-      const stance = parseStance(raw);
-      return { personaId: persona.id, stance };
+      // 読めない応答 (JSON 崩れ・途中切れ) と通信失敗は、1回だけやり直す
+      for (let attempt = 1; attempt <= STANCE_ATTEMPTS; attempt++) {
+        try {
+          const raw = await generate(messages, env, sessionId, options.modelName, {
+            maxOutputTokens: STANCE_MAX_OUTPUT_TOKENS,
+          });
+          const stance = parseStance(raw);
+          if (stance) {
+            return { personaId: persona.id, stance };
+          }
+          console.warn(
+            `Stance generation returned no parsable stance for ${persona.id} ` +
+              `(attempt ${attempt}/${STANCE_ATTEMPTS}) head=${JSON.stringify(raw.slice(0, 200))}`
+          );
+        } catch (err) {
+          console.warn(
+            `Stance generation failed for ${persona.id} (attempt ${attempt}/${STANCE_ATTEMPTS}):`,
+            errorMessage(err)
+          );
+        }
+      }
+      return { personaId: persona.id, stance: null };
     })
   );
 
@@ -129,8 +147,6 @@ export async function generateStances(
     } else if (result.status === "rejected") {
       // 立場生成の失敗は対談本体を止めない
       console.warn(`Stance generation failed for ${personaId}:`, errorMessage(result.reason));
-    } else if (!result.value.stance) {
-      console.warn(`Stance generation returned no parsable stance for ${personaId}`);
     }
   }
   return stances;
