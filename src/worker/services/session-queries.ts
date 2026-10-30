@@ -151,7 +151,7 @@ export function findSessionByNormalizedUrl(db: D1Database, normalizedUrl: string
     .first<ExistingSessionRow>();
 }
 
-/** 新規対談の保存。articleSummary は記事本文の先頭部分 */
+/** 新規対談の保存。articleSummary は分析要約 + 論点 + 本文冒頭のハイブリッド */
 export function insertSession(
   db: D1Database,
   session: {

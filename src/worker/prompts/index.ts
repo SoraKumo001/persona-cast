@@ -22,6 +22,9 @@ import personaGenerateOthers from "./persona-generate-others.md?raw";
 import personaGenerateSystem from "./persona-generate-system.md?raw";
 import { renderPrompt } from "./render";
 
+// 対談履歴は直近のこの件数だけをプロンプトに載せる (古い発言で文脈とトークンを圧迫しないため)
+export const DIALOGUE_HISTORY_LIMIT = 6;
+
 // 発言の長さに落差を付けるため、ターンごとに長さの目安を循環させる (全発言が同じ長さになるのを防ぐ)
 const LENGTH_HINTS = [
   "一言〜一文だけ(40文字以内)の短い返し",
@@ -30,6 +33,21 @@ const LENGTH_HINTS = [
   "しっかり語る。4〜5文(180文字前後)",
   "一言の相槌や反応のあと、一文だけ付け足す(50文字前後)",
 ];
+
+/**
+ * 論点をプロンプト用の箇条書きにする。配列でも、改行や「・」「-」区切りの文字列でも受け取れる。
+ * 空なら「なし」(テンプレートの変数は必ず差し込む必要があるため)。
+ */
+function formatKeyPoints(keyPoints: readonly string[] | string | undefined): string {
+  const raw = keyPoints ?? [];
+  const items = (Array.isArray(raw) ? raw : String(raw).split(/\r?\n|(?=[・\-*]\s)/u))
+    .map((p) => String(p).replace(/^[\s・\-*]+/u, "").trim())
+    .filter((p) => p.length > 0);
+  if (items.length === 0) {
+    return "なし";
+  }
+  return items.map((p, i) => `${i + 1}. ${p}`).join("\n");
+}
 
 /**
  * 対談: 1ターン分。
@@ -43,15 +61,30 @@ export function buildTurnMessages(params: {
   currentPersona: { id: string; name: string; role: string; personality: string; speakingStyle: string };
   allPersonas: { id: string; name: string; role: string }[];
   articleTitle: string;
+  /**
+   * 記事の中身。生の本文をそのまま渡すのではなく、
+   * 「分析の要約 + キー引用 + 本文冒頭」を連結したハイブリッドなテキストを渡す想定。
+   * (従来どおり本文冒頭だけを渡しても動く)
+   */
   articleSummary: string;
+  /** 記事本文からのキー引用 (任意)。未指定なら「なし」として扱う */
+  articleKeyQuotes?: string;
+  /** この記事の論点 (任意)。文字列の配列、または改行/箇条書き区切りの文字列 */
+  keyPoints?: readonly string[] | string;
   pastMemories: MemorySearchResult[];
   history: { personaName: string; text: string }[];
   turnIndex: number;
   totalTurns: number;
   isFirstSpeaker: boolean;
+  /** 履歴に載せる直近の発言数 (既定: DIALOGUE_HISTORY_LIMIT) */
+  historyLimit?: number;
 }): ChatMessage[] {
-  const { currentPersona, allPersonas, articleTitle, articleSummary, pastMemories, history, turnIndex, totalTurns } =
-    params;
+  const { currentPersona, allPersonas, articleTitle, articleSummary, pastMemories, turnIndex, totalTurns } = params;
+
+  const recentHistory = params.history.slice(-(params.historyLimit ?? DIALOGUE_HISTORY_LIMIT));
+
+  const articleKeyQuotesText = params.articleKeyQuotes?.trim() ? params.articleKeyQuotes.trim() : "なし";
+  const keyPointsText = formatKeyPoints(params.keyPoints);
 
   const cast = allPersonas.map((p) => `- ${p.name}（${p.role}）`).join("\n");
 
@@ -84,7 +117,14 @@ export function buildTurnMessages(params: {
 
   const system: ChatMessage = {
     role: "system",
-    content: renderPrompt(dialogueSystem, { cast, articleTitle, articleSummary, memoryContext }),
+    content: renderPrompt(dialogueSystem, {
+      cast,
+      articleTitle,
+      articleSummary,
+      articleKeyQuotes: articleKeyQuotesText,
+      keyPoints: keyPointsText,
+      memoryContext,
+    }),
   };
 
   if (params.isFirstSpeaker) {
@@ -97,7 +137,7 @@ export function buildTurnMessages(params: {
     {
       role: "user",
       content: renderPrompt(dialogueTurn, {
-        history: history.map((h) => `${h.personaName}: 「${h.text}」`).join("\n\n"),
+        history: recentHistory.map((h) => `${h.personaName}: 「${h.text}」`).join("\n\n"),
         speaker,
         instruction: isLastTurn
           ? renderPrompt(dialogueInstructionFinal)

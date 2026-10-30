@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { Env } from "../types";
-import { analyzeArticle, defaultTurns, fallbackPersonas, parseAnalysis } from "./analyze";
+import {
+  analyzeArticle,
+  buildArticleSummary,
+  defaultTurns,
+  fallbackPersonas,
+  parseAnalysis,
+  parseArticleSummary,
+} from "./analyze";
 import { guessGenre } from "./genres";
 import type { OgpInfo } from "./scraper";
 
@@ -74,6 +81,28 @@ describe("fallbackPersonas (ジャンル指定)", () => {
     expect(fallbackPersonas(candidates, "seed", 3, "プログラミング・開発")).toEqual(
       fallbackPersonas(candidates, "seed", 3)
     );
+  });
+});
+
+describe("parseArticleSummary", () => {
+  const saved = buildArticleSummary(
+    { summary: "要約です", keyQuotes: ["コストが半分"], keyPoints: ["論点A", "論点B"] },
+    "本文冒頭の内容"
+  );
+
+  test("保存したハイブリッド要約からキー引用と論点を取り出し、要約からは重複を除く", () => {
+    const parsed = parseArticleSummary(saved);
+    expect(parsed.keyQuotes).toEqual(["コストが半分"]);
+    expect(parsed.keyPoints).toEqual(["論点A", "論点B"]);
+    expect(parsed.summary).toContain("要約です");
+    expect(parsed.summary).toContain("本文冒頭の内容");
+    expect(parsed.summary).not.toContain("コストが半分");
+    expect(parsed.summary).not.toContain("論点A");
+  });
+
+  test("見出しの無い古いデータでは空配列を返し、要約はそのまま", () => {
+    const parsed = parseArticleSummary("本文だけの要約");
+    expect(parsed).toEqual({ keyQuotes: [], keyPoints: [], summary: "本文だけの要約" });
   });
 });
 

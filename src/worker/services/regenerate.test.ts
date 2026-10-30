@@ -23,6 +23,8 @@ const stored: Row = {
 const analysis: Analysis = {
   adult: false,
   genre: "プログラミング・開発",
+  keyPoints: ["論点1"],
+  keyQuotes: [],
   personaIds: ["eng", "dog", "ana"],
   summary: "新しい要約",
 };
@@ -146,7 +148,7 @@ describe("regenerateSession", () => {
     ]);
     const update = batched[0].binds;
     expect(update[0]).toBe("新しいタイトル");
-    expect(update[1]).toBe("取り直した本文");
+    expect(update[1]).toBe("【要約】\n新しい要約\n\n【論点】\n- 論点1\n\n【本文冒頭】\n取り直した本文");
     expect(update[3]).toBe("新しい要約");
     expect(update[4]).toBe("プログラミング・開発");
     expect(update[5]).toBe('["eng","dog","ana"]');

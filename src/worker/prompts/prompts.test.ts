@@ -100,6 +100,35 @@ describe("全テンプレートの組み立て", () => {
     expect(last).toContain("最終ターン");
     expect(mid).not.toContain("最終ターン");
   });
+
+  test("記事のキー引用と論点を system に差し込み、履歴は直近6件に絞る", () => {
+    const history = Array.from({ length: 10 }, (_, i) => ({ personaName: "ケン", text: `過去発言${i}` }));
+    const [system, user] = buildTurnMessages({
+      ...turn,
+      history,
+      articleKeyQuotes: "「コストが半分になった」",
+      keyPoints: ["論点A", "論点B", "論点C"],
+    });
+    expect(system.content).toContain("「コストが半分になった」");
+    expect(system.content).toContain("1. 論点A");
+    expect(system.content).toContain("3. 論点C");
+    // 直近6件 (過去発言4〜9) だけが載る
+    expect(user.content).toContain("過去発言9");
+    expect(user.content).toContain("過去発言4");
+    expect(user.content).not.toContain("過去発言3");
+  });
+
+  test("キー引用・論点が未指定でも「なし」で組み立てられる (後方互換)", () => {
+    const [system] = buildTurnMessages(turn);
+    expect(system.content).toContain("記事からのキー引用");
+    expect(system.content).toContain("なし");
+  });
+
+  test("System のルールに具体性の要求 (数字・固有名詞) が入っている", () => {
+    const [system] = buildTurnMessages(turn);
+    expect(system.content).toContain("固有名詞");
+    expect(system.content).toContain("一般論");
+  });
 });
 
 describe("テンプレートファイル", () => {

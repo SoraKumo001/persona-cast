@@ -4,13 +4,12 @@
  */
 import type { Env } from "../types";
 import { ADULT_MESSAGE } from "./adult-filter";
-import { analyzeArticle } from "./analyze";
+import { analyzeArticle, buildArticleSummary } from "./analyze";
 import { listPersonaCandidates } from "./persona-store";
 import { type OgpInfo, type ScrapedArticle, scrapeUrl } from "./scraper";
 
 /** 生成中とみなす時間 (routes/sessions.ts の /stream と同じ) */
 const GENERATING_MS = 10 * 60 * 1000;
-const CONTENT_MAX_CHARS = 3000;
 
 interface SessionForRegenerate {
   article_summary: string;
@@ -97,7 +96,7 @@ export async function regenerateSession(
               persona_ids = ?, generating_at = NULL WHERE id = ?`
     ).bind(
       article.title,
-      article.content.slice(0, CONTENT_MAX_CHARS),
+      buildArticleSummary(analysis, article.content),
       JSON.stringify(article.ogp),
       analysis.summary,
       analysis.genre,

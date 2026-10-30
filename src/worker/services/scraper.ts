@@ -29,7 +29,11 @@ export interface ScrapedArticle {
 const MAX_REDIRECTS = 5;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 10_000;
-const MAX_CONTENT_CHARS = 6000;
+const MAX_CONTENT_CHARS = 8000;
+/** 本文として採用する最低文字数と、リンク密度の上限 (一覧ページ・ナビを弾く) */
+const MIN_BODY_CHARS = 200;
+const MIN_CLEAN_BODY_CHARS = 400;
+const MAX_LINK_DENSITY = 0.4;
 
 export class ScrapeError extends Error {}
 
@@ -139,15 +143,21 @@ async function readLimited(response: Response, limit: number): Promise<string> {
   return text + decoder.decode();
 }
 
+const SCOPES = ["article", "main", "body"] as const;
+type Scope = (typeof SCOPES)[number];
+
 interface Extracted {
-  buckets: Record<"article" | "main" | "body", string>;
+  buckets: Record<Scope, string>;
   canonical: string | null;
+  headings: Record<Scope, number>;
   icon: string | null;
+  linkChars: Record<Scope, number>;
   meta: Map<string, string>;
   title: string;
 }
 
 const BLOCKS = "p, h1, h2, h3, h4, li";
+const HEADINGS = "h1, h2, h3, h4";
 
 async function extract(html: string): Promise<Extracted> {
   const out: Extracted = {
@@ -156,6 +166,8 @@ async function extract(html: string): Promise<Extracted> {
     canonical: null,
     icon: null,
     buckets: { article: "", main: "", body: "" },
+    headings: { article: 0, main: 0, body: 0 },
+    linkChars: { article: 0, main: 0, body: 0 },
   };
 
   const rewriter = new HTMLRewriter()
@@ -189,7 +201,7 @@ async function extract(html: string): Promise<Extracted> {
       },
     });
 
-  for (const scope of ["article", "main", "body"] as const) {
+  for (const scope of SCOPES) {
     const selector = BLOCKS.split(",")
       .map((b) => `${scope} ${b.trim()}`)
       .join(", ");
@@ -203,11 +215,46 @@ async function extract(html: string): Promise<Extracted> {
         out.buckets[scope] += t.text;
       },
     });
+    // 見出しの数とリンク文字数は、本文らしさの判定に使う
+    rewriter.on(`${scope} ${HEADINGS}`, {
+      element() {
+        out.headings[scope] += 1;
+      },
+    });
+    rewriter.on(`${scope} a`, {
+      text(t) {
+        out.linkChars[scope] += t.text.length;
+      },
+    });
   }
 
   // 変換結果は使わず、ハンドラの副作用だけを利用する
   await rewriter.transform(new Response(html, { headers: { "content-type": "text/html" } })).arrayBuffer();
   return out;
+}
+
+/**
+ * 本文の採用。article > main > body の順を基本にしつつ、
+ * リンク密度が高すぎる一覧ページ的な要素は下げ、見出しのある本文を優先する。
+ */
+function pickContent(page: Extracted): string {
+  const candidates = SCOPES.map((scope) => {
+    const text = cleanText(page.buckets[scope]);
+    const { length } = text;
+    const linkDensity = length > 0 ? Math.min(page.linkChars[scope] / length, 1) : 0;
+    const score = length * (1 - linkDensity) + page.headings[scope] * 100;
+    return { scope, text, length, linkDensity, score };
+  });
+
+  const preferred = candidates.find(
+    (c) => c.scope !== "body" && c.length >= MIN_CLEAN_BODY_CHARS && c.linkDensity <= MAX_LINK_DENSITY
+  );
+  if (preferred) {
+    return preferred.text;
+  }
+  const substantial = candidates.filter((c) => c.length >= MIN_BODY_CHARS);
+  const pool = substantial.length > 0 ? substantial : candidates;
+  return pool.sort((a, b) => b.score - a.score)[0]?.text ?? "";
 }
 
 export async function scrapeUrl(urlStr: string): Promise<ScrapedArticle> {
@@ -232,9 +279,8 @@ export async function scrapeUrl(urlStr: string): Promise<ScrapedArticle> {
     type: meta("og:type"),
   };
 
-  // 本文: article > main > 全体 の順で、十分な長さのあるものを採用
-  const candidates = [page.buckets.article, page.buckets.main, page.buckets.body].map(cleanText);
-  let content = candidates.find((c) => c.length >= 200) ?? candidates.sort((a, b) => b.length - a.length)[0] ?? "";
+  // 本文: article > main > 全体 の順で、長さ・見出し・リンク密度から採用する
+  let content = pickContent(page);
   if (content.length > MAX_CONTENT_CHARS) {
     content = `${content.slice(0, MAX_CONTENT_CHARS)}...(省略)`;
   }

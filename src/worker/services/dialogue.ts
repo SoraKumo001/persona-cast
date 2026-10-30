@@ -2,6 +2,7 @@ import type { DialogueSessionRow } from "../db-types";
 import { errorMessage } from "../errors";
 import { buildConsolidateMessages, buildTurnMessages } from "../prompts";
 import type { Env, Persona } from "../types";
+import { parseArticleSummary } from "./analyze";
 import { generateChatCompletion, streamChatCompletion } from "./llm";
 import { MEMORY_MIN_SCORE, saveMemoryChunk, searchSimilarMemories } from "./memory";
 import { listPersonasByIds, toPersona } from "./persona-store";
@@ -71,6 +72,13 @@ export async function* orchestrateDialogue(
 
   const conversationHistory: { personaName: string; text: string }[] = [];
 
+  // 保存時のハイブリッド要約からキー引用・論点を復元し、対談プロンプトへ渡す
+  const {
+    keyPoints: articleKeyPoints,
+    keyQuotes: articleKeyQuotes,
+    summary: articleSummary,
+  } = parseArticleSummary(sessionRow.article_summary);
+
   // 4. 各ターンの掛け合いループ
   for (let turn = 0; turn < totalTurns; turn++) {
     const currentPersona = activePersonas[turn % activePersonas.length];
@@ -89,7 +97,9 @@ export async function* orchestrateDialogue(
       currentPersona,
       allPersonas: activePersonas,
       articleTitle: sessionRow.article_title,
-      articleSummary: sessionRow.article_summary,
+      articleSummary: articleSummary || sessionRow.article_summary,
+      articleKeyQuotes: articleKeyQuotes.length > 0 ? articleKeyQuotes.map((q) => `「${q}」`).join("\n") : undefined,
+      keyPoints: articleKeyPoints.length > 0 ? articleKeyPoints : undefined,
       pastMemories,
       history: conversationHistory,
       turnIndex: turn,

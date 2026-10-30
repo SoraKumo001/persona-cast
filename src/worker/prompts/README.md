@@ -11,7 +11,7 @@ LLM に渡す文面は、ここの `*.md` を編集して変更します。`inde
 
 | ファイル | 用途 | 変数 |
 |---|---|---|
-| `dialogue-system.md` | 対談: 番組のルール・記事・記憶・出演者 (system、全発言者で共通) | cast, articleTitle, articleSummary, memoryContext |
+| `dialogue-system.md` | 対談: 番組のルール・記事・記憶・出演者 (system、全発言者で共通) | cast, articleTitle, articleSummary, articleKeyQuotes, keyPoints, memoryContext |
 | `dialogue-speaker.md` | 対談: 今回の発言者の役 (user の末尾に差し込む) | name, role, otherNames, personality, speakingStyle |
 | `dialogue-memory-item.md` | 対談: 過去の対談記憶1件分 | index, articleTitle, topicSummary, keyQuotes |
 | `dialogue-opening.md` | 対談: 最初の発言の依頼 (user) | speaker, articleTitle |

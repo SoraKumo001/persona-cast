@@ -5,7 +5,7 @@ import { errorMessage } from "../errors";
 import { clampInt, rateLimit } from "../middleware/rate-limit";
 import { ADULT_MESSAGE, isAdultHost } from "../services/adult-filter";
 import { trackEvent } from "../services/analytics-track";
-import { analyzeArticle, defaultTurns } from "../services/analyze";
+import { analyzeArticle, buildArticleSummary, defaultTurns } from "../services/analyze";
 import { DEFAULT_GENRE } from "../services/genres";
 import { MEMORY_MIN_SCORE, searchSimilarMemories } from "../services/memory";
 import { listPersonaCandidates } from "../services/persona-store";
@@ -155,7 +155,7 @@ ${article.content.slice(0, 300)}`,
     sourceUrl: article.url,
     normalizedUrl: article.normalizedUrl,
     articleTitle: article.title,
-    articleSummary: article.content.slice(0, 3000), // 長すぎないよう保存
+    articleSummary: buildArticleSummary(analysis, article.content),
     summary: analysis.summary,
     genre: analysis.genre,
     ogJson: JSON.stringify(article.ogp),
