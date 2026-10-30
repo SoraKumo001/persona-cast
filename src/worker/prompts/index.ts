@@ -35,6 +35,33 @@ const LENGTH_HINTS = [
 ];
 
 /**
+ * 中盤の区間。ここが「賛成です」級の短い相槌だけに崩落しやすい。
+ * 9ターンなら 4〜7ターン目 (turnIndex 3〜6) が中盤になる。
+ * 末尾2ターン (締めの直前と最終ターン) は総括と役割が重なるので中盤扱いしない。
+ */
+const MID_TURN_START_INDEX = 3;
+const MID_TURN_TAIL_MARGIN = 2;
+const MID_TURN_MIN_TOTAL_TURNS = 6;
+
+/** 中盤は下限を上げる。短い相槌で流れるのを防ぎつつ、最終ターンの総括と長さがかぶらない範囲に収める */
+const MID_TURN_LENGTH_HINT = "3〜5文(80〜180文字)。短い相槌だけで終わらせない";
+
+/** 中盤だけに足す深掘りの指示。賛否・反例・数値の再言及のいずれかを必須にする */
+const MID_TURN_INSTRUCTION = [
+  "今回は対談の中盤です。直前の発言を受けたうえで、論点を一段深く掘り下げてください。",
+  "次のうち少なくとも1つを必ず入れてください: (a) 記事の主張への明確な賛否(どこに同意し、どこに引っかかるのか) (b) 記事の内容が当てはまらない反例・例外・別の見方 (c) 記事の数字やキー引用の再言及(その前提や意味を疑うなど)。",
+  "「賛成です」「なるほど」のような短い相槌だけの発言は禁止です。",
+].join("\n");
+
+/** そのターンが中盤 (論点を深掘りする区間) かどうか */
+function isMidTurn(turnIndex: number, totalTurns: number): boolean {
+  if (totalTurns < MID_TURN_MIN_TOTAL_TURNS) {
+    return false;
+  }
+  return turnIndex >= MID_TURN_START_INDEX && turnIndex < totalTurns - MID_TURN_TAIL_MARGIN;
+}
+
+/**
  * 論点をプロンプト用の箇条書きにする。配列でも、改行や「・」「-」区切りの文字列でも受け取れる。
  * 空なら「なし」(テンプレートの変数は必ず差し込む必要があるため)。
  */
@@ -132,6 +159,16 @@ export function buildTurnMessages(params: {
   }
 
   const isLastTurn = turnIndex === totalTurns - 1;
+  const midTurn = isMidTurn(turnIndex, totalTurns);
+  const replyInstruction = [
+    renderPrompt(dialogueInstructionReply, {
+      lengthHint: midTurn ? MID_TURN_LENGTH_HINT : LENGTH_HINTS[turnIndex % LENGTH_HINTS.length],
+    }),
+    midTurn ? MID_TURN_INSTRUCTION : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join("\n");
+
   return [
     system,
     {
@@ -139,9 +176,7 @@ export function buildTurnMessages(params: {
       content: renderPrompt(dialogueTurn, {
         history: recentHistory.map((h) => `${h.personaName}: 「${h.text}」`).join("\n\n"),
         speaker,
-        instruction: isLastTurn
-          ? renderPrompt(dialogueInstructionFinal)
-          : renderPrompt(dialogueInstructionReply, { lengthHint: LENGTH_HINTS[turnIndex % LENGTH_HINTS.length] }),
+        instruction: isLastTurn ? renderPrompt(dialogueInstructionFinal) : replyInstruction,
       }),
     },
   ];

@@ -19,6 +19,8 @@ const MIN_PERSONAS = 3;
 const MAX_PERSONAS = 4;
 /** 分析の LLM 呼び出しを試す回数 (1回目が失敗・不完全だったときに、1回だけやり直す) */
 const ANALYZE_ATTEMPTS = 2;
+/** 分析は要約・論点・引用・ジャンル・ペルソナIDを1つの JSON で返すため、途切れないよう長めに取る */
+const ANALYZE_MAX_OUTPUT_TOKENS = 2000;
 
 export interface PersonaCandidate {
   /** これまでに出演した対談の数 (偏りを避けるため選定に使う) */
@@ -40,6 +42,16 @@ export interface Analysis {
   personaIds: string[];
   summary: string;
 }
+
+/** LLM の応答から取り出せた項目 (欠けた項目は undefined) */
+type ParsedAnalysis = {
+  summary?: string;
+  keyPoints?: string[];
+  keyQuotes?: string[];
+  genre?: Genre;
+  personaIds?: string[];
+  adult?: boolean;
+};
 
 /** LLM を使わない要約: OGP説明文 → 本文先頭 */
 export function extractiveSummary(content: string, ogp: OgpInfo): string {
@@ -215,29 +227,90 @@ export function fallbackPersonas(
   return picked.slice(0, size).map((c) => c.id);
 }
 
-/** LLMの出力から JSON を取り出し、ジャンル・ペルソナIDを検証して返す。不正な項目は捨てる */
-export function parseAnalysis(
-  text: string,
-  candidates: PersonaCandidate[]
-): {
-  summary?: string;
-  keyPoints?: string[];
-  keyQuotes?: string[];
-  genre?: Genre;
-  personaIds?: string[];
-  adult?: boolean;
-} {
-  const json = text.match(/\{[\s\S]*\}/u)?.[0];
-  if (!json) {
-    return {};
-  }
-  let raw: Record<string, unknown>;
+/** JSON 文字列を試しにパースする (オブジェクト以外は捨てる) */
+function tryParseObject(text: string): Record<string, unknown> | undefined {
   try {
-    raw = JSON.parse(json) as Record<string, unknown>;
+    const value: unknown = JSON.parse(text);
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : undefined;
   } catch {
-    return {};
+    return undefined;
+  }
+}
+
+/**
+ * 途中で切れた JSON を、文字列・括弧の対応を見ながら閉じて読める形にする。
+ * 値の無いキー (..., "genre": ) は捨て、値の途中なら閉じ引用符だけ補う。
+ */
+function closeTruncatedJson(snippet: string): string {
+  let inString = false;
+  let escaped = false;
+  const stack: string[] = [];
+  for (const ch of snippet) {
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{" || ch === "[") stack.push(ch);
+    else if (ch === "}" || ch === "]") stack.pop();
   }
 
+  let out = snippet;
+  if (escaped) {
+    out = out.slice(0, -1); // 末尾の不完全なエスケープを落とす
+  }
+  if (inString) {
+    out += '"';
+  }
+  out = out.replace(/,\s*"[^"]*"\s*:\s*$/u, ""); // 値の無いキーを落とす
+  out = out.replace(/,\s*$/u, ""); // 末尾のカンマを落とす
+  for (let i = stack.length - 1; i >= 0; i--) {
+    out += stack[i] === "{" ? "}" : "]";
+  }
+  return out;
+}
+
+/**
+ * 応答から最初の JSON オブジェクトを取り出す。閉じ括弧まで揃っていればそのまま、
+ * トークン上限で途中から切れていれば補完して読む (truncated: true)
+ */
+export function extractJsonObject(
+  text: string
+): { raw: Record<string, unknown>; truncated: boolean } | undefined {
+  const start = text.indexOf("{");
+  if (start < 0) {
+    return undefined;
+  }
+  const candidate = text.slice(start);
+  const end = text.lastIndexOf("}");
+  if (end > start) {
+    const raw = tryParseObject(candidate.slice(0, end - start + 1));
+    if (raw) {
+      return { raw, truncated: false };
+    }
+  }
+  // 切れている場合は、区切り (カンマ) まで戻しながら読める範囲を探す
+  let snippet = candidate;
+  for (let i = 0; i < 8; i++) {
+    const raw = tryParseObject(closeTruncatedJson(snippet));
+    if (raw) {
+      return { raw, truncated: true };
+    }
+    const cut = snippet.lastIndexOf(",");
+    if (cut <= 0) {
+      break;
+    }
+    snippet = snippet.slice(0, cut);
+  }
+  return undefined;
+}
+
+/** LLM が返した JSON を検証して、分析結果の形に整える */
+function normalizeAnalysis(raw: Record<string, unknown>, candidates: PersonaCandidate[]): ParsedAnalysis {
   const valid = new Set(candidates.map((c) => c.id));
   const ids: string[] = Array.isArray(raw.personaIds)
     ? [
@@ -276,7 +349,7 @@ export function parseAnalysis(
     ),
   ].slice(0, KEY_QUOTES_MAX);
 
-  const result: ReturnType<typeof parseAnalysis> = {
+  const result: ParsedAnalysis = {
     summary:
       typeof raw.summary === "string" && raw.summary.trim()
         ? raw.summary
@@ -295,6 +368,12 @@ export function parseAnalysis(
     result.keyQuotes = keyQuotes;
   }
   return result;
+}
+
+/** LLMの出力から JSON を取り出し、ジャンル・ペルソナIDを検証して返す。不正な項目は捨てる */
+export function parseAnalysis(text: string, candidates: PersonaCandidate[]): ParsedAnalysis {
+  const extracted = extractJsonObject(text);
+  return extracted ? normalizeAnalysis(extracted.raw, candidates) : {};
 }
 
 /** 参加者が足りなければ補い、候補が複数あるのに1人だけにならないようにする */
@@ -361,18 +440,24 @@ export async function analyzeArticle(
     candidates: rotated,
   });
 
-  // 通信の失敗や、JSON として読めない・項目が欠けた応答は、1回だけやり直す。失敗の理由はログに残す
-  let parsed: ReturnType<typeof parseAnalysis> = {};
+  // 通信の失敗・JSON として読めない応答・トークン上限で切れた応答は、1回だけやり直す。
+  // 切れていても読めた項目は保持しておき、やり直しも失敗したらそれを使う
+  let parsed: ParsedAnalysis = {};
   for (let attempt = 1; attempt <= ANALYZE_ATTEMPTS; attempt++) {
     try {
-      const text = await complete(messages, env, sessionId);
-      parsed = parseAnalysis(text, candidates);
-      if (parsed.summary && parsed.genre && parsed.personaIds) {
+      const text = await complete(messages, env, sessionId, undefined, {
+        maxOutputTokens: ANALYZE_MAX_OUTPUT_TOKENS,
+      });
+      const extracted = extractJsonObject(text);
+      const current = extracted ? normalizeAnalysis(extracted.raw, candidates) : {};
+      parsed = current;
+      if (current.summary && current.genre && current.personaIds && !extracted?.truncated) {
         break;
       }
       console.warn(
         `analyzeArticle: incomplete response (attempt ${attempt}/${ANALYZE_ATTEMPTS}) session=${sessionId} ` +
-          `has summary=${!!parsed.summary} genre=${!!parsed.genre} personaIds=${!!parsed.personaIds} ` +
+          `truncated=${extracted?.truncated ?? false} ` +
+          `has summary=${!!current.summary} genre=${!!current.genre} personaIds=${!!current.personaIds} ` +
           `head=${JSON.stringify(text.slice(0, 200))}`
       );
     } catch (err) {

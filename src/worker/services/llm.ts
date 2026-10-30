@@ -100,6 +100,14 @@ export async function* streamChatCompletion(
   }
 }
 
+export interface GenerateOptions {
+  /** 応答の最大トークン数 (既定 1000)。長い JSON を返す分析用途では増やす */
+  maxOutputTokens?: number;
+}
+
+/** 一括生成の既定トークン数 (対談の記憶抽出など、短い応答で足りる用途) */
+const DEFAULT_MAX_OUTPUT_TOKENS = 1000;
+
 /**
  * @ai-sdk の generateText を使って要約・記憶抽出用の一括生成
  */
@@ -107,7 +115,8 @@ export async function generateChatCompletion(
   messages: ChatMessage[],
   env: Env,
   sessionId: string,
-  modelName?: string
+  modelName?: string,
+  options: GenerateOptions = {}
 ): Promise<string> {
   const apiKey = env.OPENCODE_API_KEY;
   const modelId = modelName || env.OPENCODE_DEFAULT_MODEL || "deepseek-v4.1-flash";
@@ -126,7 +135,7 @@ export async function generateChatCompletion(
   const { text, usage } = await generateText({
     model,
     ...splitSystem(messages),
-    maxOutputTokens: 1000,
+    maxOutputTokens: options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
     temperature: 0.7,
   });
 

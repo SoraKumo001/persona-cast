@@ -129,6 +129,43 @@ describe("全テンプレートの組み立て", () => {
     expect(system.content).toContain("固有名詞");
     expect(system.content).toContain("一般論");
   });
+
+  test("中盤 (9ターンなら4〜7ターン目) は賛否・反例・数値の再言及を必須にし、短い相槌だけを禁じる", () => {
+    for (const turnIndex of [3, 4, 5, 6]) {
+      const user = buildTurnMessages({ ...turn, turnIndex, totalTurns: 9 })[1].content;
+      expect(user).toContain("対談の中盤");
+      expect(user).toContain("賛否");
+      expect(user).toContain("反例");
+      expect(user).toContain("キー引用の再言及");
+      expect(user).toContain("短い相槌だけの発言は禁止");
+      // 長さの目安は下限80字以上
+      expect(user).toContain("80〜180文字");
+      // 最終ターンの総括とはかぶらない
+      expect(user).not.toContain("最終ターン");
+    }
+  });
+
+  test("中盤の外 (3ターン目・8ターン目) は深掘り指示を付けない", () => {
+    for (const turnIndex of [2, 7]) {
+      const user = buildTurnMessages({ ...turn, turnIndex, totalTurns: 9 })[1].content;
+      expect(user).not.toContain("対談の中盤");
+      expect(user).not.toContain("80〜180文字");
+    }
+  });
+
+  test("最終ターンは従来どおり総括で、中盤の深掘り指示は入らない", () => {
+    const last = buildTurnMessages({ ...turn, turnIndex: 8, totalTurns: 9 })[1].content;
+    expect(last).toContain("最終ターン");
+    expect(last).not.toContain("対談の中盤");
+    expect(last).not.toContain("80〜180文字");
+  });
+
+  test("System のルールに中盤の深掘り (短い相槌だけの禁止) が入っている", () => {
+    const [system] = buildTurnMessages(turn);
+    expect(system.content).toContain("中盤の深掘り");
+    expect(system.content).toContain("反例");
+    expect(system.content).toContain("禁止");
+  });
 });
 
 describe("テンプレートファイル", () => {

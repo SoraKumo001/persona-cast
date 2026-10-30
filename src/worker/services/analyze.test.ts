@@ -38,6 +38,22 @@ describe("parseAnalysis", () => {
     expect(parseAnalysis("わかりません", candidates)).toEqual({});
     expect(parseAnalysis("{broken", candidates)).toEqual({});
   });
+
+  test("トークン上限で途中から切れたJSONでも、読める項目は取り出す", () => {
+    const cutArray = '{"summary":"途中まで","genre":"AI・機械学習","personaIds":["ken","yuk';
+    expect(parseAnalysis(cutArray, candidates)).toMatchObject({
+      summary: "途中まで",
+      genre: "AI・機械学習",
+      personaIds: ["ken"],
+    });
+
+    const cutKey = '{"summary":"要約","genre":"サイエンス","personaIds":["ken"],"keyPoints":';
+    expect(parseAnalysis(cutKey, candidates)).toMatchObject({
+      summary: "要約",
+      genre: "サイエンス",
+      personaIds: ["ken"],
+    });
+  });
 });
 
 describe("fallbackPersonas", () => {
@@ -160,6 +176,25 @@ describe("analyzeArticle", () => {
     const result = await analyzeArticle(env, "s", article, candidates, () => Promise.resolve('{"genre":"サイエンス"}'));
     expect(result.genre).toBe("サイエンス");
     expect(result.summary).toBe("OGPの説明");
+  });
+
+  test("途中で切れた応答は、項目が揃っていても1回やり直す", async () => {
+    const truncated = '{"summary":"LLMの要約","genre":"プログラミング・開発","personaIds":["ken","ren"';
+    const replies = [truncated, good];
+    let calls = 0;
+    const result = await analyzeArticle(env, "s", article, candidates, () => Promise.resolve(replies[calls++]));
+    expect(calls).toBe(2);
+    expect(result.summary).toBe("LLMの要約");
+    expect(result.personaIds.slice(0, 2)).toEqual(["ken", "ren"]);
+  });
+
+  test("分析呼び出しでは長めのトークン上限を渡す", async () => {
+    const options: unknown[] = [];
+    await analyzeArticle(env, "s", article, candidates, (_messages, _env, _sessionId, _model, opts) => {
+      options.push(opts);
+      return Promise.resolve(good);
+    });
+    expect(options[0]).toEqual({ maxOutputTokens: 2000 });
   });
 });
 
