@@ -21,6 +21,9 @@ import personaGenerateNew from "./persona-generate-new.md?raw";
 import personaGenerateOthers from "./persona-generate-others.md?raw";
 import personaGenerateSystem from "./persona-generate-system.md?raw";
 import { renderPrompt } from "./render";
+import stanceSystem from "./stance-system.md?raw";
+import stanceUser from "./stance-user.md?raw";
+
 
 // 対談履歴は直近のこの件数だけをプロンプトに載せる (古い発言で文脈とトークンを圧迫しないため)
 export const DIALOGUE_HISTORY_LIMIT = 6;
@@ -77,6 +80,20 @@ function formatKeyPoints(keyPoints: readonly string[] | string | undefined): str
 }
 
 /**
+ * 発言者の末尾に足す「立場」。対談前の Phase 1 で決めたもので、台本ではない。
+ * 逐語で読み上げさせず、対談の流れで更新してよい出発点として渡す。
+ */
+function formatStanceBlock(stance: string): string {
+  return [
+    "【あなたの立場(非公開・逐語反復禁止)】",
+    stance,
+    "- これは今回の発言の出発点です。対談の流れで考えが変わったら、更新して構いません。",
+    "- この文面をそのまま逐語で繰り返さないこと。必ず自分の言葉に言い換えること。",
+    "- この立場は他の出演者に開示しないこと。",
+  ].join("\n");
+}
+
+/**
  * 対談: 1ターン分。
  * LLM のプロンプトキャッシュは先頭から一致した部分だけが効くので、全員に共通の内容を前に、
  * 発言者ごとに違う内容 (誰として話すか) を最後に置く。
@@ -98,6 +115,8 @@ export function buildTurnMessages(params: {
   articleKeyQuotes?: string;
   /** この記事の論点 (任意)。文字列の配列、または改行/箇条書き区切りの文字列 */
   keyPoints?: readonly string[] | string;
+  /** 対談前に生成したこのペルソナの立場 (任意)。未指定・生成失敗なら従来どおり注入しない */
+  stance?: string;
   pastMemories: MemorySearchResult[];
   history: { personaName: string; text: string }[];
   turnIndex: number;
@@ -134,13 +153,16 @@ export function buildTurnMessages(params: {
           .join("\n\n")
       : "なし";
 
-  const speaker = renderPrompt(dialogueSpeaker, {
+  const speakerBase = renderPrompt(dialogueSpeaker, {
     name: currentPersona.name,
     role: currentPersona.role,
     otherNames,
     personality: currentPersona.personality,
     speakingStyle: currentPersona.speakingStyle,
   });
+  // 立場は user の末尾 (発言者の役の直後) に置く。system を発言者ごとに変えないためキャッシュは壊れない
+  const stanceText = params.stance?.trim();
+  const speaker = stanceText ? `${speakerBase}\n\n${formatStanceBlock(stanceText)}` : speakerBase;
 
   const system: ChatMessage = {
     role: "system",
@@ -177,6 +199,45 @@ export function buildTurnMessages(params: {
         history: recentHistory.map((h) => `${h.personaName}: 「${h.text}」`).join("\n\n"),
         speaker,
         instruction: isLastTurn ? renderPrompt(dialogueInstructionFinal) : replyInstruction,
+      }),
+    },
+  ];
+}
+
+/**
+ * 対談前の Phase 1: 1ペルソナ分の「立場」をJSONで作らせる。
+ * 記事の要約・論点・キー引用と、そのペルソナの役割を与え、他の出演者の役割を見せて差別化を促す。
+ */
+export function buildStanceMessages(params: {
+  currentPersona: { id: string; name: string; role: string; personality: string; speakingStyle: string };
+  allPersonas: { id: string; name: string; role: string }[];
+  articleTitle: string;
+  articleSummary: string;
+  articleKeyQuotes?: string;
+  keyPoints?: readonly string[] | string;
+}): ChatMessage[] {
+  const { currentPersona } = params;
+
+  const others =
+    params.allPersonas
+      .filter((p) => p.id !== currentPersona.id)
+      .map((p) => `- ${p.name}（${p.role}）`)
+      .join("\n") || "なし";
+
+  return [
+    { role: "system", content: renderPrompt(stanceSystem) },
+    {
+      role: "user",
+      content: renderPrompt(stanceUser, {
+        name: currentPersona.name,
+        role: currentPersona.role,
+        personality: currentPersona.personality,
+        speakingStyle: currentPersona.speakingStyle,
+        others,
+        articleTitle: params.articleTitle,
+        articleSummary: params.articleSummary,
+        articleKeyQuotes: params.articleKeyQuotes?.trim() ? params.articleKeyQuotes.trim() : "なし",
+        keyPoints: formatKeyPoints(params.keyPoints),
       }),
     },
   ];

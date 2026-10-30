@@ -7,6 +7,7 @@ import { generateChatCompletion, streamChatCompletion } from "./llm";
 import { MEMORY_MIN_SCORE, saveMemoryChunk, searchSimilarMemories } from "./memory";
 import { listPersonasByIds, toPersona } from "./persona-store";
 import { getDialogueSession, insertMessage } from "./session-queries";
+import { generateStances } from "./stance";
 
 export interface DialogueEvent {
   data: Record<string, unknown>;
@@ -45,13 +46,40 @@ export async function* orchestrateDialogue(
   }
   const activePersonas = personaIds.map((id) => personasMap.get(id)).filter((p): p is Persona => p !== undefined);
 
-  // 3. 過去の類似対談記憶（エピソード記憶）を検索
-  const pastMemories = await searchSimilarMemories(
-    `${sessionRow.article_title}\n${sessionRow.article_summary}`,
-    env,
-    3,
-    MEMORY_MIN_SCORE
-  );
+  // 保存時のハイブリッド要約からキー引用・論点を復元し、対談プロンプトへ渡す
+  const {
+    keyPoints: articleKeyPoints,
+    keyQuotes: articleKeyQuotes,
+    summary: articleSummary,
+  } = parseArticleSummary(sessionRow.article_summary);
+  const effectiveSummary = articleSummary || sessionRow.article_summary;
+  const keyQuotesText =
+    articleKeyQuotes.length > 0 ? articleKeyQuotes.map((q) => `「${q}」`).join("\n") : undefined;
+
+  // 3. 過去の類似対談記憶（エピソード記憶）の検索と、Phase 1 の「立場」生成を並列で走らせる。
+  //    Phase 1 は全ペルソナ分を Promise.all で一度に生成する (逐次ループにしない)。
+  //    生成に失敗したペルソナは Map から欠落し、そのまま stance なしで対談を続行する。
+  const [pastMemories, stances] = await Promise.all([
+    searchSimilarMemories(
+      `${sessionRow.article_title}\n${sessionRow.article_summary}`,
+      env,
+      3,
+      MEMORY_MIN_SCORE
+    ),
+    generateStances(
+      {
+        // A/B比較用: STANCE_PILOT=off なら Phase 1 を丸ごと飛ばす (空配列なら LLM 呼び出しも 0 回)
+        personas: env.STANCE_PILOT === "off" ? [] : activePersonas,
+        articleTitle: sessionRow.article_title,
+        articleSummary: effectiveSummary,
+        articleKeyQuotes: keyQuotesText,
+        keyPoints: articleKeyPoints.length > 0 ? articleKeyPoints : undefined,
+      },
+      env,
+      sessionId,
+      { modelName }
+    ),
+  ]);
 
   yield {
     type: "session_start",
@@ -72,13 +100,6 @@ export async function* orchestrateDialogue(
 
   const conversationHistory: { personaName: string; text: string }[] = [];
 
-  // 保存時のハイブリッド要約からキー引用・論点を復元し、対談プロンプトへ渡す
-  const {
-    keyPoints: articleKeyPoints,
-    keyQuotes: articleKeyQuotes,
-    summary: articleSummary,
-  } = parseArticleSummary(sessionRow.article_summary);
-
   // 4. 各ターンの掛け合いループ
   for (let turn = 0; turn < totalTurns; turn++) {
     const currentPersona = activePersonas[turn % activePersonas.length];
@@ -97,9 +118,10 @@ export async function* orchestrateDialogue(
       currentPersona,
       allPersonas: activePersonas,
       articleTitle: sessionRow.article_title,
-      articleSummary: articleSummary || sessionRow.article_summary,
-      articleKeyQuotes: articleKeyQuotes.length > 0 ? articleKeyQuotes.map((q) => `「${q}」`).join("\n") : undefined,
+      articleSummary: effectiveSummary,
+      articleKeyQuotes: keyQuotesText,
       keyPoints: articleKeyPoints.length > 0 ? articleKeyPoints : undefined,
+      stance: stances.get(currentPersona.id),
       pastMemories,
       history: conversationHistory,
       turnIndex: turn,

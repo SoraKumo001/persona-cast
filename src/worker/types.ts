@@ -39,6 +39,7 @@ export interface Env {
   OPENCODE_API_KEY?: string;
   OPENCODE_BASE_URL?: string;
   OPENCODE_DEFAULT_MODEL?: string;
+  STANCE_PILOT?: string; // "off" で対談前の立場生成 (Phase 1) を止める。A/B比較用
   VECTORIZE?: VectorizeBinding; // Cloudflare Vectorize binding
   WEB_ANALYTICS_TOKEN?: string; // Cloudflare Web Analytics のビーコンのトークン (空なら出さない)
 }
