@@ -35,7 +35,7 @@ const STANCE_FIELD_LIMITS = { claim: 40, reason: 70, counter: 50 } as const;
  * 立場 JSON は 3 項目 (合計 200 字) だけだが、日本語はトークン効率が悪く、
  * 途中で切れると JSON として読めなくなる。余裕を持って長めに取る
  */
-const STANCE_MAX_OUTPUT_TOKENS = 800;
+const STANCE_MAX_OUTPUT_TOKENS = 1200;
 
 /** 立場生成の試行回数 (読めない応答・失敗時に1回だけやり直す) */
 const STANCE_ATTEMPTS = 2;
