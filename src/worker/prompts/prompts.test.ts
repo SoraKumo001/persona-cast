@@ -5,6 +5,7 @@ import {
   buildAnalyzeMessages,
   buildConsolidateMessages,
   buildPersonaGenerateMessages,
+  buildStanceMessages,
   buildTurnMessages,
 } from "./index";
 import { renderPrompt } from "./render";
@@ -99,6 +100,47 @@ describe("全テンプレートの組み立て", () => {
     const mid = buildTurnMessages(turn)[1].content;
     expect(last).toContain("最終ターン");
     expect(mid).not.toContain("最終ターン");
+  });
+
+  test("担当論点は発言者欄の末尾に1行だけ入り、system は変えない (キャッシュ維持)", () => {
+    const withAssignment = buildTurnMessages({ ...turn, assignedKeyPoints: ["論点A"] });
+    const withoutAssignment = buildTurnMessages(turn);
+
+    expect(withAssignment[0].content).toBe(withoutAssignment[0].content);
+    expect(withAssignment[1].content).toContain("あなたの担当論点: 論点A。");
+    // 発言者の役 → 担当論点 の順で、指示 (instruction) より前に入る
+    const speakerIndex = withAssignment[1].content.indexOf("ペルソナ「ケン」");
+    const assignmentIndex = withAssignment[1].content.indexOf("あなたの担当論点");
+    expect(speakerIndex).toBeLessThan(assignmentIndex);
+    // 担当論点の行は改行を含まない (1行)
+    const line = withAssignment[1].content.split("\n").find((l) => l.includes("あなたの担当論点"));
+    expect(line).toBeDefined();
+    expect(line?.endsWith("。")).toBe(true);
+  });
+
+  test("担当論点が未指定なら従来どおり注入しない", () => {
+    const user = buildTurnMessages(turn)[1].content;
+    expect(user).not.toContain("あなたの担当論点");
+  });
+
+  test("立場生成プロンプトにも担当論点を1行入れ、system は変えない", () => {
+    const base = {
+      currentPersona: persona,
+      allPersonas: [persona, { id: "b", name: "ユキ", role: "PM" }],
+      articleTitle: "記事",
+      articleSummary: "概要",
+      keyPoints: ["論点A", "論点B"],
+    };
+    const withAssignment = buildStanceMessages({ ...base, assignedKeyPoints: ["論点A"] });
+    const withoutAssignment = buildStanceMessages(base);
+
+    expect(withAssignment[0].content).toBe(withoutAssignment[0].content);
+    expect(withAssignment[1].content).toContain("あなたの担当論点: 論点A。");
+    expect(withoutAssignment[1].content).not.toContain("あなたの担当論点");
+    // JSON 出力の指示より前 (ペルソナ欄の末尾) に置く
+    expect(withAssignment[1].content.indexOf("あなたの担当論点")).toBeLessThan(
+      withAssignment[1].content.indexOf("JSONで1つだけ出力")
+    );
   });
 
   test("記事のキー引用と論点を system に差し込み、履歴は直近6件に絞る", () => {

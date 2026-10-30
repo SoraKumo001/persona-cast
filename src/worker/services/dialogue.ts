@@ -3,9 +3,11 @@ import { errorMessage } from "../errors";
 import { buildConsolidateMessages, buildTurnMessages } from "../prompts";
 import type { Env, Persona } from "../types";
 import { parseArticleSummary } from "./analyze";
+import { assignKeyPoints } from "./keypoint-assignment";
 import { generateChatCompletion, streamChatCompletion } from "./llm";
 import { MEMORY_MIN_SCORE, saveMemoryChunk, searchSimilarMemories } from "./memory";
 import { listPersonasByIds, toPersona } from "./persona-store";
+import { personaTemperature } from "./persona-temperature";
 import { getDialogueSession, insertMessage } from "./session-queries";
 import { generateStances } from "./stance";
 
@@ -55,6 +57,9 @@ export async function* orchestrateDialogue(
   const effectiveSummary = articleSummary || sessionRow.article_summary;
   const keyQuotesText =
     articleKeyQuotes.length > 0 ? articleKeyQuotes.map((q) => `「${q}」`).join("\n") : undefined;
+  // 論点割当パイロット: keyPoints を personas 順に分散所有させる。
+  // KEYPOINT_ASSIGN=off なら空 Map になり、プロンプトはパイロット前と同じになる。
+  const keyPointAssignments = assignKeyPoints(activePersonas, articleKeyPoints, env);
 
   // 3. 過去の類似対談記憶（エピソード記憶）の検索と、Phase 1 の「立場」生成を並列で走らせる。
   //    Phase 1 は全ペルソナ分を Promise.all で一度に生成する (逐次ループにしない)。
@@ -74,6 +79,7 @@ export async function* orchestrateDialogue(
         articleSummary: effectiveSummary,
         articleKeyQuotes: keyQuotesText,
         keyPoints: articleKeyPoints.length > 0 ? articleKeyPoints : undefined,
+        keyPointAssignments,
       },
       env,
       sessionId,
@@ -122,6 +128,7 @@ export async function* orchestrateDialogue(
       articleKeyQuotes: keyQuotesText,
       keyPoints: articleKeyPoints.length > 0 ? articleKeyPoints : undefined,
       stance: stances.get(currentPersona.id),
+      assignedKeyPoints: keyPointAssignments.get(currentPersona.id),
       pastMemories,
       history: conversationHistory,
       turnIndex: turn,
@@ -130,8 +137,10 @@ export async function* orchestrateDialogue(
     });
 
     let fullTurnContent = "";
+    // 発言者ごとの temperature (パイロット)。PERSONA_TEMP_PILOT=off なら全員 0.75
+    const temperature = personaTemperature(currentPersona.id, env);
     try {
-      for await (const chunk of streamChatCompletion(promptMessages, env, sessionId, modelName)) {
+      for await (const chunk of streamChatCompletion(promptMessages, env, sessionId, modelName, temperature)) {
         fullTurnContent += chunk;
         yield {
           type: "chunk",

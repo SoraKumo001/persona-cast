@@ -5,6 +5,7 @@
 口調・話し方: {{speakingStyle}}
 他の出演者(この人たちとは違う立場にする):
 {{others}}
+{{assignedKeyPoint}}
 
 【記事】
 タイトル: {{articleTitle}}

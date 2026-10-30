@@ -24,7 +24,6 @@ import { renderPrompt } from "./render";
 import stanceSystem from "./stance-system.md?raw";
 import stanceUser from "./stance-user.md?raw";
 
-
 // 対談履歴は直近のこの件数だけをプロンプトに載せる (古い発言で文脈とトークンを圧迫しないため)
 export const DIALOGUE_HISTORY_LIMIT = 6;
 
@@ -65,18 +64,42 @@ function isMidTurn(turnIndex: number, totalTurns: number): boolean {
 }
 
 /**
- * 論点をプロンプト用の箇条書きにする。配列でも、改行や「・」「-」区切りの文字列でも受け取れる。
+ * 論点を配列に正規化する。配列でも、改行や「・」「-」区切りの文字列でも受け取れる。
+ * 論点の割当 (keypoint-assignment) とプロンプト組み立ての両方から使う。
+ */
+export function normalizeKeyPoints(keyPoints: readonly string[] | string | undefined): string[] {
+  const raw = keyPoints ?? [];
+  return (Array.isArray(raw) ? raw : String(raw).split(/\r?\n|(?=[・\-*]\s)/u))
+    .map((p) =>
+      String(p)
+        .replace(/^[\s・\-*]+/u, "")
+        .trim()
+    )
+    .filter((p) => p.length > 0);
+}
+
+/**
+ * 論点をプロンプト用の箇条書きにする。
  * 空なら「なし」(テンプレートの変数は必ず差し込む必要があるため)。
  */
 function formatKeyPoints(keyPoints: readonly string[] | string | undefined): string {
-  const raw = keyPoints ?? [];
-  const items = (Array.isArray(raw) ? raw : String(raw).split(/\r?\n|(?=[・\-*]\s)/u))
-    .map((p) => String(p).replace(/^[\s・\-*]+/u, "").trim())
-    .filter((p) => p.length > 0);
+  const items = normalizeKeyPoints(keyPoints);
   if (items.length === 0) {
     return "なし";
   }
   return items.map((p, i) => `${i + 1}. ${p}`).join("\n");
+}
+
+/**
+ * 発言者の末尾に足す「担当論点」1行。system (全員共通) ではなく発言者側に置くので、
+ * プロンプトキャッシュは壊れない。中盤の深掘り指示 (賛否・反例・数値の再言及) とは
+ * 競合しないよう、他者の論点は「結論を奪わず自分の担当への含意として触れる」に留める。
+ */
+export function formatKeyPointAssignment(assigned: readonly string[]): string {
+  return (
+    `あなたの担当論点: ${assigned.join(" / ")}。` +
+    "この論点を軸に話し、他者の担当論点は結論を奪わず、自分の担当への含意として触れるにとどめてください。"
+  );
 }
 
 /**
@@ -117,6 +140,8 @@ export function buildTurnMessages(params: {
   keyPoints?: readonly string[] | string;
   /** 対談前に生成したこのペルソナの立場 (任意)。未指定・生成失敗なら従来どおり注入しない */
   stance?: string;
+  /** このペルソナの担当論点 (任意)。指定時だけ発言者の末尾に1行注入する */
+  assignedKeyPoints?: readonly string[];
   pastMemories: MemorySearchResult[];
   history: { personaName: string; text: string }[];
   turnIndex: number;
@@ -162,7 +187,16 @@ export function buildTurnMessages(params: {
   });
   // 立場は user の末尾 (発言者の役の直後) に置く。system を発言者ごとに変えないためキャッシュは壊れない
   const stanceText = params.stance?.trim();
-  const speaker = stanceText ? `${speakerBase}\n\n${formatStanceBlock(stanceText)}` : speakerBase;
+  // 担当論点も同じく発言者側の末尾に置く (1行)。誰が何を担当するかは発言者ごとに違うが、
+  // system は全員共通のままなのでプロンプトキャッシュは維持される。
+  const assignedKeyPoints = params.assignedKeyPoints ?? [];
+  const speaker = [
+    speakerBase,
+    stanceText ? formatStanceBlock(stanceText) : null,
+    assignedKeyPoints.length > 0 ? formatKeyPointAssignment(assignedKeyPoints) : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join("\n\n");
 
   const system: ChatMessage = {
     role: "system",
@@ -215,6 +249,8 @@ export function buildStanceMessages(params: {
   articleSummary: string;
   articleKeyQuotes?: string;
   keyPoints?: readonly string[] | string;
+  /** このペルソナの担当論点 (任意)。指定時だけペルソナ欄の末尾に1行注入する */
+  assignedKeyPoints?: readonly string[];
 }): ChatMessage[] {
   const { currentPersona } = params;
 
@@ -223,6 +259,8 @@ export function buildStanceMessages(params: {
       .filter((p) => p.id !== currentPersona.id)
       .map((p) => `- ${p.name}（${p.role}）`)
       .join("\n") || "なし";
+
+  const assignedKeyPoints = params.assignedKeyPoints ?? [];
 
   return [
     { role: "system", content: renderPrompt(stanceSystem) },
@@ -234,6 +272,7 @@ export function buildStanceMessages(params: {
         personality: currentPersona.personality,
         speakingStyle: currentPersona.speakingStyle,
         others,
+        assignedKeyPoint: assignedKeyPoints.length > 0 ? formatKeyPointAssignment(assignedKeyPoints) : "",
         articleTitle: params.articleTitle,
         articleSummary: params.articleSummary,
         articleKeyQuotes: params.articleKeyQuotes?.trim() ? params.articleKeyQuotes.trim() : "なし",

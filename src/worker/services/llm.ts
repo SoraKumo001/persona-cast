@@ -54,14 +54,21 @@ function logUsage(
   trackEvent(env, "llm_usage", { value: usage.inputTokens, extra: cached, output: usage.outputTokens ?? 0 });
 }
 
+/** 対談ストリーミングの既定 temperature。ペルソナ別の値を使わないときはこれに戻す */
+export const DEFAULT_STREAM_TEMPERATURE = 0.75;
+
 /**
  * @ai-sdk の streamText を使ってリアルタイムストリーミング生成
+ *
+ * temperature は呼び出し側 (対談なら発言者ごと) が指定できる。
+ * 省略時は従来どおり 0.75。
  */
 export async function* streamChatCompletion(
   messages: ChatMessage[],
   env: Env,
   sessionId: string,
-  modelName?: string
+  modelName?: string,
+  temperature: number = DEFAULT_STREAM_TEMPERATURE
 ): AsyncGenerator<string, void, unknown> {
   const apiKey = env.OPENCODE_API_KEY;
   const modelId = modelName || env.OPENCODE_DEFAULT_MODEL || "deepseek-v4.1-flash";
@@ -81,7 +88,7 @@ export async function* streamChatCompletion(
     model,
     ...splitSystem(messages),
     maxOutputTokens: 1200,
-    temperature: 0.75,
+    temperature,
     onError: ({ error }) => {
       streamError = error;
     },
