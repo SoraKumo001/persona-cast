@@ -13,11 +13,15 @@ export interface MemorySearchResult {
   topicSummary: string;
 }
 
+/** 類似記憶として採用するスコアの下限。呼び出し側ごとにばらつかせない */
+export const MEMORY_MIN_SCORE = 0.5;
+
 /**
  * テキストから1024次元のEmbeddingベクトルを生成
- * Cloudflare Workers AI (@cf/baai/bge-m3) を最優先で使用
+ * Cloudflare Workers AI (@cf/baai/bge-m3) を使用し、本物の埋め込みが得られないときは null を返す。
+ * (ダミーの決定論的ベクトルを保存・検索に使うと D1 フォールバック検索が汚染されるため作らない)
  */
-export async function generateEmbedding(text: string, env: Env): Promise<number[]> {
+export async function generateEmbedding(text: string, env: Env): Promise<number[] | null> {
   const model = env.EMBEDDING_MODEL || "@cf/baai/bge-m3";
   const trimmed = text.slice(0, 2000); // bge-m3 の入力上限保護
 
@@ -32,12 +36,11 @@ export async function generateEmbedding(text: string, env: Env): Promise<number[
         return first;
       }
     } catch (err) {
-      console.warn("Workers AI Embedding failed, falling back to local vector generation:", err);
+      console.warn("Workers AI Embedding failed:", err);
     }
   }
 
-  // ローカル開発やWorkers AI未接続時のフォールバック (1024次元のハッシュ・擬似Embedding)
-  return generateDeterministicVector(trimmed, 1024);
+  return null;
 }
 
 /**
@@ -48,7 +51,7 @@ export async function searchSimilarMemories(
   queryText: string,
   env: Env,
   limit = 3,
-  minScore = 0.55
+  minScore = MEMORY_MIN_SCORE
 ): Promise<MemorySearchResult[]> {
   // 外した分で件数が減らないよう、多めに取ってから絞る
   const found = await searchRawMemories(queryText, env, limit + 5, minScore);
@@ -72,6 +75,11 @@ async function searchRawMemories(
   minScore: number
 ): Promise<MemorySearchResult[]> {
   const queryVector = await generateEmbedding(queryText, env);
+  if (!queryVector) {
+    // 本物の埋め込みが無い環境 (AI 未接続・障害) では、類似度を偽装せず記憶検索を諦める
+    console.warn("Embedding unavailable; skipping memory search");
+    return [];
+  }
 
   // 1. Cloudflare Vectorize がバインドされている場合はVectorizeを最優先
   if (env.VECTORIZE) {
@@ -82,19 +90,26 @@ async function searchRawMemories(
       });
 
       if (vecResult.matches && vecResult.matches.length > 0) {
-        const matches = vecResult.matches
-          .filter((m) => m.score >= minScore)
-          .map((m) => ({
-            id: m.id,
-            sessionId: m.metadata?.sessionId || "",
-            articleTitle: m.metadata?.articleTitle || "",
-            sourceUrl: m.metadata?.sourceUrl || "",
-            topicSummary: m.metadata?.topicSummary || "",
-            keyQuotes: m.metadata?.keyQuotes || "",
-            personaIds: m.metadata?.personaIds ? (JSON.parse(m.metadata.personaIds) as string[]) : [],
-            score: m.score,
-            createdAt: m.metadata?.createdAt || "",
-          }));
+        const matches = vecResult.matches.flatMap((m): MemorySearchResult[] => {
+          // 識別に必要な情報が欠けた行は、空文字で埋めずに除外する
+          const meta = m.metadata as Record<string, string | undefined> | undefined;
+          if (m.score < minScore || !meta?.sessionId || !meta.articleTitle) {
+            return [];
+          }
+          return [
+            {
+              id: m.id,
+              sessionId: meta.sessionId,
+              articleTitle: meta.articleTitle,
+              sourceUrl: meta.sourceUrl ?? "",
+              topicSummary: meta.topicSummary ?? "",
+              keyQuotes: meta.keyQuotes ?? "",
+              personaIds: parsePersonaIds(meta.personaIds),
+              score: m.score,
+              createdAt: meta.createdAt ?? "",
+            },
+          ];
+        });
 
         if (matches.length > 0) {
           return matches;
@@ -116,27 +131,25 @@ async function searchRawMemories(
     }
 
     const scored = results
-      .map((row) => {
-        let score = 0;
-        if (row.embedding_json) {
-          try {
-            const vec = JSON.parse(row.embedding_json);
-            score = cosineSimilarity(queryVector, vec);
-          } catch {
-            score = 0;
-          }
+      .flatMap((row): MemorySearchResult[] => {
+        // 埋め込みが無い (保存時に作れなかった) 行は、スコア0で混ぜず除外する
+        const vec = parseStoredEmbedding(row.embedding_json);
+        if (!vec) {
+          return [];
         }
-        return {
-          id: row.id,
-          sessionId: row.session_id,
-          articleTitle: row.article_title,
-          sourceUrl: row.source_url,
-          topicSummary: row.topic_summary,
-          keyQuotes: row.key_quotes,
-          personaIds: JSON.parse(row.persona_ids || "[]") as string[],
-          score,
-          createdAt: row.created_at,
-        };
+        return [
+          {
+            id: row.id,
+            sessionId: row.session_id,
+            articleTitle: row.article_title,
+            sourceUrl: row.source_url,
+            topicSummary: row.topic_summary,
+            keyQuotes: row.key_quotes,
+            personaIds: parsePersonaIds(row.persona_ids),
+            score: cosineSimilarity(queryVector, vec),
+            createdAt: row.created_at,
+          },
+        ];
       })
       .filter((item) => item.score >= minScore)
       .sort((a, b) => b.score - a.score)
@@ -146,6 +159,35 @@ async function searchRawMemories(
   } catch (err) {
     console.error("D1 memory search error:", err);
     return [];
+  }
+}
+
+/** persona_ids の JSON。壊れていても検索全体を落とさず空として扱う */
+function parsePersonaIds(json: string | null | undefined): string[] {
+  if (!json) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** D1 に保存された埋め込み。無い・壊れている場合は null */
+function parseStoredEmbedding(json: string | null): number[] | null {
+  if (!json) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(json);
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return null;
+    }
+    return parsed as number[];
+  } catch {
+    return null;
   }
 }
 
@@ -197,7 +239,7 @@ export async function saveMemoryChunk(
   const embedding = await generateEmbedding(textToEmbed, env);
   const now = new Date().toISOString();
 
-  // 1. D1 に保存
+  // 1. D1 に保存 (本物の埋め込みが無いときは embedding_json を NULL にし、検索側で除外させる)
   await env.DB.prepare(
     `INSERT INTO memory_chunks (id, session_id, article_title, source_url, topic_summary, key_quotes, persona_ids, embedding_json, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -210,13 +252,13 @@ export async function saveMemoryChunk(
       chunk.topicSummary,
       chunk.keyQuotes,
       JSON.stringify(chunk.personaIds),
-      JSON.stringify(embedding),
+      embedding ? JSON.stringify(embedding) : null,
       now
     )
     .run();
 
-  // 2. Vectorize に upsert
-  if (env.VECTORIZE) {
+  // 2. Vectorize に upsert (埋め込みが無い行は登録しない)
+  if (env.VECTORIZE && embedding) {
     try {
       await env.VECTORIZE.upsert([toVectorRecord(chunk, embedding, now)]);
     } catch (err) {
@@ -244,28 +286,4 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
     return 0;
   }
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-}
-
-/**
- * ローカル開発用決定論的ベクトル生成
- */
-function generateDeterministicVector(text: string, dimensions: number): number[] {
-  const vector = new Array(dimensions).fill(0);
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    const index = (code * 31 + i) % dimensions;
-    vector[index] += 1;
-  }
-  // L2正規化
-  let norm = 0;
-  for (let i = 0; i < dimensions; i++) {
-    norm += vector[i] * vector[i];
-  }
-  norm = Math.sqrt(norm);
-  if (norm > 0) {
-    for (let i = 0; i < dimensions; i++) {
-      vector[i] /= norm;
-    }
-  }
-  return vector;
 }

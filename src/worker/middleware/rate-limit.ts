@@ -5,7 +5,7 @@ import type { Env } from "../types";
  * D1 を使った簡易レート制限 (固定ウィンドウ)。公開エンドポイントが LLM・Workers AI を呼ぶため、
  * IPごとの回数を制限してコストの悪用を防ぐ。
  * - IP は Cloudflare が付ける CF-Connecting-IP。無ければ (ローカル開発など) 制限しない。
- * - 制限のための DB 障害でサービスを止めないよう、エラー時は通す。
+ * - 制限のための DB 障害時は、通さずに 429 を返す (LLM の使い放題を防ぐため安全側に倒す)。
  * 超過時は 429 の Response を返し、通すときは null を返す。
  */
 export async function rateLimit(
@@ -31,9 +31,12 @@ export async function rateLimit(
       .bind(`${name}:${clientKey(ip)}:${bucket}`, expiresAt)
       .first<{ count: number }>();
 
-    // 期限切れの行を、たまに掃除する
+    // 期限切れの行を、たまに掃除する (掃除の失敗は回数の判定に影響しないので握りつぶす)
     if (Math.random() < 0.02) {
-      await c.env.DB.prepare("DELETE FROM rate_limits WHERE expires_at < ?").bind(nowSec).run();
+      await c.env.DB.prepare("DELETE FROM rate_limits WHERE expires_at < ?")
+        .bind(nowSec)
+        .run()
+        .catch((err) => console.warn("rateLimit cleanup failed:", err));
     }
 
     if (row && row.count > limit) {
@@ -42,7 +45,11 @@ export async function rateLimit(
       });
     }
   } catch (err) {
-    console.warn("rateLimit failed (allowing request):", err);
+    // 回数が確認できない以上、無制限には通さない (fail-closed 寄り)
+    console.warn("rateLimit failed (rejecting request):", err);
+    return c.json({ error: "混み合っています。しばらくしてからもう一度お試しください。" }, 429, {
+      "Retry-After": "60",
+    });
   }
   return null;
 }

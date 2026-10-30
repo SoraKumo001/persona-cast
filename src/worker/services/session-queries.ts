@@ -198,15 +198,18 @@ export function getSessionGenerationState(db: D1Database, id: string) {
     .first<{ personaIds: string; messageCount: number }>();
 }
 
+/** 生成中の印が失効するまでの時間。これを過ぎた印は生成中の扱いにしない */
+export const GENERATION_STALE_MS = 10 * 60 * 1000;
+
 /**
- * 生成中の印を原子的に付ける。10分以上前の印は失効扱い。
+ * 生成中の印を原子的に付ける。GENERATION_STALE_MS 以上前の印は失効扱い。
  * 付けられたら true、既に生成中なら false
  */
 export async function claimSessionGeneration(
   db: D1Database,
   id: string,
   now = new Date(),
-  staleMs = 10 * 60 * 1000
+  staleMs = GENERATION_STALE_MS
 ): Promise<boolean> {
   const result = await db
     .prepare("UPDATE sessions SET generating_at = ? WHERE id = ? AND (generating_at IS NULL OR generating_at < ?)")

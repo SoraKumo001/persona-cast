@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { clampFloat, clampInt, clientKey } from "./rate-limit";
+import { Hono } from "hono";
+import type { Env } from "../types";
+import { clampFloat, clampInt, clientKey, rateLimit } from "./rate-limit";
 
 describe("clampInt", () => {
   test("範囲内に収める", () => {
@@ -18,6 +20,29 @@ describe("clampFloat", () => {
     expect(clampFloat("5", 0, 1, 0.35)).toBe(1);
     expect(clampFloat("-1", 0, 1, 0.35)).toBe(0);
     expect(clampFloat("NaN", 0, 1, 0.35)).toBe(0.35);
+  });
+});
+
+describe("rateLimit", () => {
+  /** DB が必ず失敗する環境。rateLimit 以外の依存は使わない */
+  const brokenEnv = {
+    DB: {
+      prepare() {
+        throw new Error("D1 unavailable");
+      },
+    },
+  } as unknown as Env;
+
+  const appWith = (env: Env) => {
+    const app = new Hono<{ Bindings: Env }>();
+    app.get("/", async (c) => (await rateLimit(c, "test", 10, 60)) ?? c.json({ ok: true }));
+    return app.request("http://localhost/", { headers: { "CF-Connecting-IP": "203.0.113.9" } }, env);
+  };
+
+  test("DB 障害時は通さず 429 (LLM の使い放題を防ぐ)", async () => {
+    const res = await appWith(brokenEnv);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("60");
   });
 });
 

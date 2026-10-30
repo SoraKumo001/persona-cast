@@ -58,8 +58,13 @@ app.post("/resync", async (c) => {
   for (const row of results) {
     let embedding = parseEmbedding(row.embedding_json);
     if (!embedding) {
-      // D1 に埋め込みが無い (保存時に失敗した) 分は、作り直して D1 にも戻す
+      // D1 に埋め込みが無い分は作り直す。本物の埋め込みが得られないときは
+      // ダミーを保存せず、この行を登録対象から外す
       embedding = await generateEmbedding(`${row.article_title}\n${row.topic_summary}\n${row.key_quotes}`, c.env);
+      if (!embedding) {
+        console.warn("Embedding unavailable; skipping memory chunk:", row.id);
+        continue;
+      }
       await c.env.DB.prepare("UPDATE memory_chunks SET embedding_json = ? WHERE id = ?")
         .bind(JSON.stringify(embedding), row.id)
         .run();
@@ -89,7 +94,9 @@ app.post("/resync", async (c) => {
   }
 
   try {
-    await c.env.VECTORIZE.upsert(records);
+    if (records.length > 0) {
+      await c.env.VECTORIZE.upsert(records);
+    }
   } catch (err) {
     console.error("Memory resync failed:", err);
     return c.json({ error: `Vectorize への登録に失敗しました: ${errorMessage(err)}` }, 502);

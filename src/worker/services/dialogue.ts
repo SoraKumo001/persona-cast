@@ -3,7 +3,7 @@ import { errorMessage } from "../errors";
 import { buildConsolidateMessages, buildTurnMessages } from "../prompts";
 import type { Env, Persona } from "../types";
 import { generateChatCompletion, streamChatCompletion } from "./llm";
-import { saveMemoryChunk, searchSimilarMemories } from "./memory";
+import { MEMORY_MIN_SCORE, saveMemoryChunk, searchSimilarMemories } from "./memory";
 import { listPersonasByIds, toPersona } from "./persona-store";
 import { getDialogueSession, insertMessage } from "./session-queries";
 
@@ -49,7 +49,7 @@ export async function* orchestrateDialogue(
     `${sessionRow.article_title}\n${sessionRow.article_summary}`,
     env,
     3,
-    0.5
+    MEMORY_MIN_SCORE
   );
 
   yield {
@@ -171,8 +171,21 @@ export async function* orchestrateDialogue(
   };
 
   // バックグラウンドで今回の対談記憶チャンクを生成・保存
+  // 記憶の失敗は SSE 本体 (対談) の成否と切り離す。ここで例外を外に漏らすと、
+  // 呼び出し側のストリーム後処理まで巻き込むため、必ず握り潰す。
+  await consolidateSafely(sessionId, sessionRow, activePersonas, conversationHistory, env);
+}
+
+/** 記憶の定着。失敗しても対談の成否に影響させない (警告のみ) */
+async function consolidateSafely(
+  sessionId: string,
+  sessionRow: DialogueSessionRow,
+  personas: Persona[],
+  history: { personaName: string; text: string }[],
+  env: Env
+): Promise<void> {
   try {
-    await consolidateSessionMemory(sessionId, sessionRow, activePersonas, conversationHistory, env);
+    await consolidateSessionMemory(sessionId, sessionRow, personas, history, env);
   } catch (err) {
     console.warn("Memory consolidation failed:", err);
   }

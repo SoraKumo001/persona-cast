@@ -8,7 +8,7 @@ import { ADULT_MESSAGE, isAdultHost } from "../services/adult-filter";
 import { trackEvent } from "../services/analytics-track";
 import { analyzeArticle, defaultTurns } from "../services/analyze";
 import { DEFAULT_GENRE } from "../services/genres";
-import { searchSimilarMemories } from "../services/memory";
+import { MEMORY_MIN_SCORE, searchSimilarMemories } from "../services/memory";
 import { listPersonaCandidates } from "../services/persona-store";
 import { ScrapeError, scrapeUrl } from "../services/scraper";
 import {
@@ -146,7 +146,7 @@ app.post("/", async (c) => {
 ${article.content.slice(0, 300)}`,
       c.env,
       3,
-      0.45
+      MEMORY_MIN_SCORE
     ),
   ]);
 

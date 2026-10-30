@@ -60,12 +60,18 @@ function fakeDb(chunks: Chunk[]) {
   return { db: db as unknown as D1Database, updates };
 }
 
-function setup(chunks: Chunk[], opts: { vectorize?: boolean; failUpsert?: boolean } = {}) {
+function setup(chunks: Chunk[], opts: { vectorize?: boolean; failUpsert?: boolean; ai?: boolean } = {}) {
   const upserts: { id: string; values: number[]; metadata?: Record<string, string> }[][] = [];
   const { db, updates } = fakeDb(chunks);
   const env = {
     DB: db,
     ACCESS_DISABLED: "true",
+    AI:
+      opts.ai === false
+        ? undefined
+        : {
+            run: () => Promise.resolve({ data: [new Array(1024).fill(0).map((_, i) => (i === 0 ? 1 : 0))] }),
+          },
     VECTORIZE:
       opts.vectorize === false
         ? undefined
@@ -135,6 +141,14 @@ describe("admin memories resync", () => {
     expect(upserts[0][0].values).toHaveLength(1024);
     expect(updates).toHaveLength(1);
     expect(updates[0][1]).toBe("mem_0001");
+  });
+
+  test("埋め込みを作れない環境では、ダミーを保存せず登録もしない", async () => {
+    const { call, upserts, updates } = setup([chunk(1, null)], { ai: false });
+    const res = await call("/resync", {});
+    expect(await res.json()).toEqual({ processed: 1, regenerated: 0, next: null });
+    expect(upserts).toHaveLength(0);
+    expect(updates).toHaveLength(0);
   });
 
   test("Vectorize への登録に失敗したら 502", async () => {
