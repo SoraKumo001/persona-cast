@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { cacheFor } from "./cache";
-import { ensureDatabaseTables } from "./presets";
 import adminAnalyticsRouter from "./routes/admin-analytics";
 import adminMemoriesRouter from "./routes/admin-memories";
 import adminPersonasRouter from "./routes/admin-personas";
@@ -54,14 +53,12 @@ app.get("/api/ogp.png", async (c) => {
 const XML_HEADERS = { "Content-Type": "application/xml; charset=utf-8" };
 
 app.get("/sitemap.xml", async (c) => {
-  await ensureDatabaseTables(c.env.DB);
   cacheFor(900);
   const [sessions, personaIds] = await Promise.all([listSitemapSessions(c.env.DB), listSitemapPersonaIds(c.env.DB)]);
   return new Response(buildSitemap(new URL(c.req.url).origin, sessions, personaIds), { headers: XML_HEADERS });
 });
 
 app.get("/rss.xml", async (c) => {
-  await ensureDatabaseTables(c.env.DB);
   cacheFor(300);
   const sessions = await listRssSessions(c.env.DB);
   return new Response(buildRss(new URL(c.req.url).origin, sessions), {

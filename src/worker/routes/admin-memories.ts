@@ -2,17 +2,12 @@ import { Hono } from "hono";
 import type { MemoryChunkDbRow } from "../db-types";
 import { errorMessage } from "../errors";
 import { requireAccess } from "../middleware/access";
-import { ensureDatabaseTables } from "../presets";
 import { generateEmbedding, toVectorRecord } from "../services/memory";
 import type { Env } from "../types";
 
 const app = new Hono<{ Bindings: Env; Variables: { adminEmail: string } }>();
 
 app.use("*", requireAccess);
-app.use("*", async (c, next) => {
-  await ensureDatabaseTables(c.env.DB);
-  await next();
-});
 
 /** 1回の呼び出しで処理する件数 (埋め込みの生成と Vectorize への書き込みを、1回の実行に収める) */
 const BATCH = 50;

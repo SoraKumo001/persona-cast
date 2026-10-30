@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { cacheFor } from "../cache";
 import type { PersonaRow } from "../db-types";
-import { DEFAULT_PERSONAS, ensureDatabaseTables } from "../presets";
+import { DEFAULT_PERSONAS } from "../presets";
 import { PERSONA_COLUMNS, toPersona } from "../services/persona-store";
 import type { Env } from "../types";
 
@@ -11,7 +11,6 @@ const app = new Hono<{ Bindings: Env }>();
 app.get("/", async (c) => {
   try {
     if (c.env.DB) {
-      await ensureDatabaseTables(c.env.DB);
       const { results } = await c.env.DB.prepare(
         `SELECT ${PERSONA_COLUMNS} FROM personas WHERE archived_at IS NULL ORDER BY created_at ASC`
       ).all<PersonaRow>();

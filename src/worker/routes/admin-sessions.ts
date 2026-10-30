@@ -3,7 +3,6 @@ import { purgeSessionCache } from "../cache";
 import { errorMessage } from "../errors";
 import { requireAccess } from "../middleware/access";
 import { clampInt } from "../middleware/rate-limit";
-import { ensureDatabaseTables } from "../presets";
 import { regenerateSession } from "../services/regenerate";
 import { escapeLike } from "../services/session-queries";
 import type { Env } from "../types";
@@ -16,10 +15,6 @@ interface AppEnv {
 const app = new Hono<AppEnv>();
 
 app.use("*", requireAccess);
-app.use("*", async (c, next) => {
-  await ensureDatabaseTables(c.env.DB);
-  await next();
-});
 
 const PAGE_SIZE = 30;
 

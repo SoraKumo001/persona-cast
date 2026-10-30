@@ -13,7 +13,7 @@ URLを指定すると、設定したAIペルソナたちが内容について過
   - **`@cloudflare/vite-plugin` v2** (`2.0.0-beta.v.7`)
   - **Cloudflare CLI (`cf`)**: `cf dev`, `cf deploy`, `cf d1`, `cf workers types`
   - **`cloudflare.config.ts`**: 型安全な Cloudflare ワーカー & バインディング定義
-- **データベース & ORM**: **Cloudflare D1** + **Drizzle ORM 1.x** (`^1.0.0-rc.5`)
+- **データベース**: **Cloudflare D1** (ORM は使わず、生SQL (`prepare()` / `bind()`) を repo 層に集約)
 - **埋め込みモデル (Embedding)**: **Cloudflare Workers AI** (`@cf/baai/bge-m3`, 1024次元)
 - **ベクトル検索**: **Cloudflare Vectorize** (`persona-cast-memories`)
 - **対話LLM**: **OpenCode Go API** (`https://opencode.ai/inference/go/openai/v1`)
@@ -26,7 +26,6 @@ URLを指定すると、設定したAIペルソナたちが内容について過
 ```text
 persona-cast/
 ├── cloudflare.config.ts        # cf CLI 用ワーカー設定 (D1, Vectorize, AI, 環境変数)
-├── drizzle.config.ts           # Drizzle 1.x マイグレーション設定
 ├── tsr.config.json             # TanStack Router ルート生成設定
 ├── package.json
 ├── vite.config.ts              # Vite + TanStack Start + @cloudflare/vite-plugin v2
@@ -78,6 +77,7 @@ EMBEDDING_MODEL="@cf/baai/bge-m3"
 ```bash
 bun run d1:migrate:local
 ```
+`migrations/` の `0001`〜`0007` を順に適用します。**起動時にテーブルや列は作られません** (`ensureDatabaseTables` は空の `personas` に初期ペルソナを入れるだけ)。スキーマ変更後は必ずこのコマンドを流してください。
 
 ### 4. 開発サーバーの起動 (`cf dev`)
 ```bash
@@ -109,7 +109,7 @@ Analytics Engine のデータセット (`persona_cast_events`) は、デプロ�
 ```bash
 bun run d1:migrate
 ```
-新しいコードを先にデプロイすると、起動時の自動追加 (`ensureDatabaseTables`) が列を足し、その後のマイグレーションが「列が重複」で失敗します。必ずマイグレーションを先に流してください。
+新しいコードを先にデプロイしても、起動時は初期ペルソナのシードしか行いません (`ensureDatabaseTables`)。それでもスキーマのずれを避けるため、必ずマイグレーションを先に流してください。
 
 ### 3. シークレットの準備
 **`cf workers secrets update` は、Worker がまだ存在しない初回には使えません** (「This Worker does not exist on your account」になります)。初回は、シークレットをファイルに書き、デプロイと一緒にアップロードします。
@@ -196,7 +196,7 @@ URLは正規化 (`https` 統一・`www.`/fragment/トラッキングクエリ除
 - ペルソナの自動選定は、URLから決まる順序で選びます。ジャンルが技術系 (プログラミング・AI・テクノロジー・サイエンス) のときは、肩書きや性格に「エンジニア」「技術」「リサーチャー」などを含むペルソナを優先し、1人は別の持ち味のペルソナにします。
 - トップページ(`/`)は対談の一覧です。ジャンルで絞り込めます (`/?genre=...`)。サムネイルは対談ごとのOGP画像で、対談完了時に先に生成します。
 - `/memories` は過去の対談記憶の検索です。
-- マイグレーション `0003_genre.sql` を `bun run d1:migrate` で適用してください。
+- ジャンルの列はマイグレーションで追加します (`bun run d1:migrate`)。
 
 ## キャッシュ (Cache API)
 
@@ -218,7 +218,7 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 - `GET /api/sessions/:id/stream`: 発言が保存済みの対談は 409 で拒否し、生成は同時に1つだけ (`sessions.generating_at` に印を付ける。10分で失効)。発言数は参加人数から決まり、`turns` や `model` はクライアントから指定できません。
 - レート制限 (IPごと、D1 の `rate_limits` テーブル): `POST /api/sessions` は新規の記事取得のみ 10回/時かつ30回/日 (日本時間の0時区切り)、`/stream` は 20回/時、`/api/memories/search` は 60回/分。超えると 429 (`Retry-After` 付き)。IP は `CF-Connecting-IP` を使い、IPv6 は /64 単位でまとめて数えます。Cloudflare を通さないローカル開発では制限されません。
 - `/api/memories/search` の `limit` (1〜20)、`minScore` (0〜1)、クエリ長 (500文字) は範囲を検証します。
-- 既存のDBには、起動時に `generating_at` 列と `rate_limits` テーブルが自動で追加されます (`migrations/0004_generation_lock_rate_limit.sql` と同等)。
+- 既存のDBには、`generating_at` 列と `rate_limits` テーブルをマイグレーション (`migrations/0004_generation_lock_rate_limit.sql`、`bun run d1:migrate`) で追加します。
 
 ## 18禁コンテンツの除外
 
@@ -234,7 +234,7 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 
 - トップページのOGP画像: `GET /api/ogp.png` (1200x630)。サイトの紹介と、出演するペルソナ (最大5人) を描き、構成が変わるたびにR2へ作り直します。`og:*` / `twitter:*` は SSR で出力します。
 - Xへのシェア: 生成済みの対談ページに「Xでシェア」のリンクを出します (`https://x.com/intent/post`)。JS なしで動く普通のリンクで、対談のタイトルとURLが入ります。
-- 1日の対談数の上限: 管理画面の上部で、全利用者の合計で1日に新しく作れる対談の数を設定できます。既定は 1000、日本時間の0時にリセット、0 にすると新規作成を止めます。上限に達すると `POST /api/sessions` が 429 を返します (保存済みの対談を開くことはできます)。設定は D1 の `app_settings` に保存します (`migrations/0005_app_settings.sql` と同等のテーブルは起動時にも自動作成)。
+- 1日の対談数の上限: 管理画面の上部で、全利用者の合計で1日に新しく作れる対談の数を設定できます。既定は 1000、日本時間の0時にリセット、0 にすると新規作成を止めます。上限に達すると `POST /api/sessions` が 429 を返します (保存済みの対談を開くことはできます)。設定は D1 の `app_settings` に保存します (`migrations/0005_app_settings.sql`)。
 
 ## 一覧のページ送り
 
@@ -242,7 +242,7 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 
 ## 対談の非表示 (管理画面 > 対談)
 
-- 公開した対談は、管理画面の「対談」タブで非表示にできます (タイトル・URLで検索可、「非表示のみ」で絞り込み、いつでも再公開)。削除はせず、`sessions.hidden_at` に日時を入れます (`migrations/0006_session_hidden.sql` と同等の列は起動時にも自動追加)。
+- 公開した対談は、管理画面の「対談」タブで非表示にできます (タイトル・URLで検索可、「非表示のみ」で絞り込み、いつでも再公開)。削除はせず、`sessions.hidden_at` に日時を入れます (`migrations/0006_session_hidden.sql`)。
 - 非表示の対談は、一覧・詳細 (`/s/:id`、`GET /api/sessions/:id`)・OGP画像・sitemap/RSS・記憶検索・「関連する対談」から外れます。同じ記事のURLを送っても作り直せません (409)。
 - 非表示・再公開のときは、その対談と一覧・sitemap・RSS のエッジキャッシュを消します。消せなかったコピーは、有効期限 (最長10分) で切れます。
 
@@ -320,6 +320,12 @@ Worker の動的な応答は Cache-Control を付けてもエッジに自動で�
 
 - **自動**: ダッシュボードの Web Analytics で `croud.jp` を追加し、自動設定 (プロキシ経由で JS を自動挿入) を選ぶ。コードの変更は不要です。
 - **手動**: サイトを追加して表示される `token` を `cloudflare.config.ts` の `WEB_ANALYTICS_TOKEN` に設定する。設定するとビーコンを `<body>` の末尾に出します (管理画面では出しません)。**自動設定と併用すると二重に計測されるため、どちらか一方にしてください。**
+
+## テスト
+
+```bash
+bun test   # 単体テスト (src/**/*.test.ts)
+```
 
 ## Lint・フォーマット (Ultracite / Biome)
 

@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { errorMessage } from "../errors";
 import { rateLimit } from "../middleware/rate-limit";
-import { ensureDatabaseTables } from "../presets";
 import { defaultTurns } from "../services/analyze";
 import { orchestrateDialogue } from "../services/dialogue";
 import { getSessionOgpImage } from "../services/ogp-image";
@@ -30,9 +29,6 @@ async function releaseSessionGeneration(db: Env["DB"], sessionId: string): Promi
 // 対談の生成 (SSE)。生成済みの対談は作り直せない。発言数は人数から決め、モデルは固定 (クライアントからは指定できない)
 app.get("/:id/stream", async (c) => {
   const sessionId = c.req.param("id");
-  if (c.env.DB) {
-    await ensureDatabaseTables(c.env.DB);
-  }
 
   const session = await getSessionGenerationState(c.env.DB, sessionId);
   if (!session) {

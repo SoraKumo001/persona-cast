@@ -5,8 +5,6 @@ import type { Env } from "../worker/types";
 async function getDb(): Promise<D1Database> {
   const { env } = await import("cloudflare:workers");
   const db = (env as { DB: D1Database }).DB;
-  const { ensureDatabaseTables } = await import("../worker/presets");
-  await ensureDatabaseTables(db);
   return db;
 }
 

@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { clampFloat, clampInt, rateLimit } from "../middleware/rate-limit";
-import { ensureDatabaseTables } from "../presets";
 import { searchSimilarMemories } from "../services/memory";
 import type { Env } from "../types";
 
@@ -19,9 +18,6 @@ const app = new Hono<{ Bindings: Env }>();
 
 // 記憶のセマンティック検索
 app.get("/search", async (c) => {
-  if (c.env.DB) {
-    await ensureDatabaseTables(c.env.DB);
-  }
   const query = c.req.query("q");
   if (!query) {
     return c.json({ error: "検索クエリ (q) を指定してください" }, 400);
@@ -50,9 +46,6 @@ app.get("/search", async (c) => {
 
 // 最近蓄積された記憶チャンク一覧
 app.get("/", async (c) => {
-  if (c.env.DB) {
-    await ensureDatabaseTables(c.env.DB);
-  }
   try {
     const { results } = await c.env.DB.prepare(
       `SELECT id, session_id as sessionId, article_title as articleTitle, source_url as sourceUrl,

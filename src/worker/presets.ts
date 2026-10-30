@@ -43,6 +43,7 @@ let seedInitialized = false;
  * 初期ペルソナが空ならシードする。
  *
  * テーブル作成・マイグレーションは migrations/ に移管済み。ここでは DDL を行わない。
+ * リクエスト処理からの呼び出しは撤去済み (Step C)。初期データは `d1:migrate` 適用後に明示的にシードする前提。
  * 失敗時は warn に留め、呼び出し元の処理を止めない (fail-open)。
  */
 export async function ensureDatabaseTables(db: D1Database): Promise<void> {

@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import type { PersonaRow } from "../db-types";
 import { errorMessage } from "../errors";
 import { requireAccess } from "../middleware/access";
-import { ensureDatabaseTables } from "../presets";
 import {
   generatePersonaDraft,
   INSTRUCTION_MAX_CHARS,
@@ -15,10 +14,6 @@ import type { Env, Persona } from "../types";
 const app = new Hono<{ Bindings: Env; Variables: { adminEmail: string } }>();
 
 app.use("*", requireAccess);
-app.use("*", async (c, next) => {
-  await ensureDatabaseTables(c.env.DB);
-  await next();
-});
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/u;

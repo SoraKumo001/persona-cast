@@ -1,16 +1,11 @@
 import { Hono } from "hono";
 import { requireAccess } from "../middleware/access";
-import { ensureDatabaseTables } from "../presets";
 import { countTodaySessions, getDailyLimit, MAX_DAILY_LIMIT, setDailyLimit } from "../services/settings";
 import type { Env } from "../types";
 
 const app = new Hono<{ Bindings: Env; Variables: { adminEmail: string } }>();
 
 app.use("*", requireAccess);
-app.use("*", async (c, next) => {
-  await ensureDatabaseTables(c.env.DB);
-  await next();
-});
 
 async function current(db: D1Database) {
   const [dailyLimit, todayCount] = await Promise.all([getDailyLimit(db), countTodaySessions(db)]);

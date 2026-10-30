@@ -3,7 +3,6 @@ import { cacheFor } from "../cache";
 import type { ExistingSessionRow } from "../db-types";
 import { errorMessage } from "../errors";
 import { clampInt, rateLimit } from "../middleware/rate-limit";
-import { ensureDatabaseTables } from "../presets";
 import { ADULT_MESSAGE, isAdultHost } from "../services/adult-filter";
 import { trackEvent } from "../services/analytics-track";
 import { analyzeArticle, defaultTurns } from "../services/analyze";
@@ -26,9 +25,6 @@ const app = new Hono<{ Bindings: Env }>();
 
 // 対談の一覧。genre で絞り込み、ジャンル別の件数も返す
 app.get("/", async (c) => {
-  if (c.env.DB) {
-    await ensureDatabaseTables(c.env.DB);
-  }
   try {
     // 新しい対談が増えるので短く。管理操作で壊れた表示も1分で戻る
     cacheFor(15);
@@ -48,9 +44,6 @@ app.get("/", async (c) => {
 
 // 新規対談セッション作成: 入力はURLだけ。要約・ジャンル・参加ペルソナ・発言数は自動で決める
 app.post("/", async (c) => {
-  if (c.env.DB) {
-    await ensureDatabaseTables(c.env.DB);
-  }
   const body = await c.req.json<{ url?: string }>().catch(() => ({}) as { url?: string });
 
   if (!body.url) {
