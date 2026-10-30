@@ -6,6 +6,7 @@ import { parseArticleSummary } from "./analyze";
 import { assignKeyPoints } from "./keypoint-assignment";
 import { generateChatCompletion, streamChatCompletion } from "./llm";
 import { MEMORY_MIN_SCORE, saveMemoryChunk, searchSimilarMemories } from "./memory";
+import { detectMemoryReference } from "./memory-reference";
 import { listPersonasByIds, toPersona } from "./persona-store";
 import { personaTemperature } from "./persona-temperature";
 import { getDialogueSession, insertMessage } from "./session-queries";
@@ -136,6 +137,9 @@ export async function* orchestrateDialogue(
       isFirstSpeaker,
     });
 
+    // この発言の生成を始めた時刻。これ以降に作られた記憶は参照しようがない (時系列ガード)
+    const turnStartedAt = new Date().toISOString();
+
     let fullTurnContent = "";
     // 発言者ごとの temperature (パイロット)。PERSONA_TEMP_PILOT=off なら全員 0.75
     const temperature = personaTemperature(currentPersona.id, env);
@@ -160,16 +164,10 @@ export async function* orchestrateDialogue(
       return;
     }
 
-    // 過去記憶を参照したか判定（記事タイトルが含まれているかなど）
-    let referencedSessionId: string | null = null;
-    let referencedArticleTitle: string | null = null;
-    for (const mem of pastMemories) {
-      if (mem.articleTitle && fullTurnContent.toLowerCase().includes(mem.articleTitle.toLowerCase().slice(0, 15))) {
-        referencedSessionId = mem.sessionId;
-        referencedArticleTitle = mem.articleTitle;
-        break;
-      }
-    }
+    // 過去記憶を参照したか判定。自己参照・タイトル先頭一致・時系列の矛盾は参照とみなさない
+    const reference = detectMemoryReference(fullTurnContent, pastMemories, sessionId, turnStartedAt);
+    const referencedSessionId = reference?.sessionId ?? null;
+    const referencedArticleTitle = reference?.articleTitle ?? null;
 
     // 会話履歴に追加
     conversationHistory.push({
