@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Env, Persona } from "../types";
-import { type ChatMessage, type generateChatCompletion } from "./llm";
+import type { ChatMessage, generateChatCompletion } from "./llm";
 import { generateStances, parseStance, STANCE_MAX_CHARS } from "./stance";
 
 const personas = [
@@ -59,11 +59,11 @@ describe("parseStance", () => {
 
 describe("generateStances", () => {
   test("全ペルソナ分を並列生成し、失敗したペルソナだけ立場なしで返す (例外を投げない)", async () => {
-    const generate: typeof generateChatCompletion = async (messages: ChatMessage[]) => {
+    const generate: typeof generateChatCompletion = (messages: ChatMessage[]) => {
       if (messages.at(-1)?.content.includes("名前: ユキ")) {
-        throw new Error("boom");
+        return Promise.reject(new Error("boom"));
       }
-      return '{"claim":"賛成","reason":"記事の数字が根拠","counter":"反例もある"}';
+      return Promise.resolve('{"claim":"賛成","reason":"記事の数字が根拠","counter":"反例もある"}');
     };
 
     const stances = await generateStances(
@@ -80,15 +80,15 @@ describe("generateStances", () => {
 
   test("読めない応答は1回だけやり直し、2回目が読めれば立場を返す", async () => {
     const calls = new Map<string, number>();
-    const generate: typeof generateChatCompletion = async (messages: ChatMessage[]) => {
+    const generate: typeof generateChatCompletion = (messages: ChatMessage[]) => {
       const name = messages.at(-1)?.content.includes("名前: ユキ") ? "yuki" : "ken";
       const count = (calls.get(name) ?? 0) + 1;
       calls.set(name, count);
       // 1回目は JSON としてまったく読めない応答
       if (count === 1) {
-        return "うまくJSONにできませんでした";
+        return Promise.resolve("うまくJSONにできませんでした");
       }
-      return '{"claim":"条件付きで賛成","reason":"数字の根拠は妥当","counter":"再現性は未確認"}';
+      return Promise.resolve('{"claim":"条件付きで賛成","reason":"数字の根拠は妥当","counter":"再現性は未確認"}');
     };
 
     const stances = await generateStances(
@@ -107,9 +107,9 @@ describe("generateStances", () => {
 
   test("2回とも読めなければ、そのペルソナだけ立場なしにする", async () => {
     let count = 0;
-    const generate: typeof generateChatCompletion = async () => {
+    const generate: typeof generateChatCompletion = () => {
       count++;
-      return "JSONは出せません";
+      return Promise.resolve("JSONは出せません");
     };
 
     const stances = await generateStances(
@@ -125,9 +125,9 @@ describe("generateStances", () => {
 
   test("立場生成には十分な maxOutputTokens を渡す", async () => {
     let maxOutputTokens: number | undefined;
-    const generate: typeof generateChatCompletion = async (_messages, _env, _sessionId, _model, options) => {
+    const generate: typeof generateChatCompletion = (_messages, _env, _sessionId, _model, options) => {
       maxOutputTokens = options?.maxOutputTokens;
-      return '{"claim":"賛成","reason":"根拠","counter":"反例"}';
+      return Promise.resolve('{"claim":"賛成","reason":"根拠","counter":"反例"}');
     };
 
     await generateStances(

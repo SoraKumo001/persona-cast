@@ -45,14 +45,14 @@ export interface Analysis {
 }
 
 /** LLM の応答から取り出せた項目 (欠けた項目は undefined) */
-type ParsedAnalysis = {
-  summary?: string;
+interface ParsedAnalysis {
+  adult?: boolean;
+  genre?: Genre;
   keyPoints?: string[];
   keyQuotes?: string[];
-  genre?: Genre;
   personaIds?: string[];
-  adult?: boolean;
-};
+  summary?: string;
+}
 
 /** LLM を使わない要約: OGP説明文 → 本文先頭 */
 export function extractiveSummary(content: string, ogp: OgpInfo): string {
@@ -227,8 +227,6 @@ export function fallbackPersonas(
   }
   return picked.slice(0, size).map((c) => c.id);
 }
-
-export { extractJsonObject } from "./json-object";
 
 /** LLM が返した JSON を検証して、分析結果の形に整える */
 function normalizeAnalysis(raw: Record<string, unknown>, candidates: PersonaCandidate[]): ParsedAnalysis {

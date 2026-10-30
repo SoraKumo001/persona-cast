@@ -56,8 +56,7 @@ export async function* orchestrateDialogue(
     summary: articleSummary,
   } = parseArticleSummary(sessionRow.article_summary);
   const effectiveSummary = articleSummary || sessionRow.article_summary;
-  const keyQuotesText =
-    articleKeyQuotes.length > 0 ? articleKeyQuotes.map((q) => `「${q}」`).join("\n") : undefined;
+  const keyQuotesText = articleKeyQuotes.length > 0 ? articleKeyQuotes.map((q) => `「${q}」`).join("\n") : undefined;
   // 論点割当パイロット: keyPoints を personas 順に分散所有させる。
   // KEYPOINT_ASSIGN=off なら空 Map になり、プロンプトはパイロット前と同じになる。
   const keyPointAssignments = assignKeyPoints(activePersonas, articleKeyPoints, env);
@@ -66,12 +65,7 @@ export async function* orchestrateDialogue(
   //    Phase 1 は全ペルソナ分を Promise.all で一度に生成する (逐次ループにしない)。
   //    生成に失敗したペルソナは Map から欠落し、そのまま stance なしで対談を続行する。
   const [pastMemories, stances] = await Promise.all([
-    searchSimilarMemories(
-      `${sessionRow.article_title}\n${sessionRow.article_summary}`,
-      env,
-      3,
-      MEMORY_MIN_SCORE
-    ),
+    searchSimilarMemories(`${sessionRow.article_title}\n${sessionRow.article_summary}`, env, 3, MEMORY_MIN_SCORE),
     generateStances(
       {
         // A/B比較用: STANCE_PILOT=off なら Phase 1 を丸ごと飛ばす (空配列なら LLM 呼び出しも 0 回)

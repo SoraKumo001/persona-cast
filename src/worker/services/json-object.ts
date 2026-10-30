@@ -2,12 +2,44 @@
 export function tryParseObject(text: string): Record<string, unknown> | undefined {
   try {
     const value: unknown = JSON.parse(text);
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : undefined;
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
   } catch {
     return undefined;
   }
+}
+
+interface JsonScanState {
+  escaped: boolean;
+  inString: boolean;
+  stack: string[];
+}
+
+function updateScanState(state: JsonScanState, ch: string): void {
+  if (state.inString) {
+    if (state.escaped) {
+      state.escaped = false;
+    } else if (ch === "\\") {
+      state.escaped = true;
+    } else if (ch === '"') {
+      state.inString = false;
+    }
+    return;
+  }
+  if (ch === '"') {
+    state.inString = true;
+  } else if (ch === "{" || ch === "[") {
+    state.stack.push(ch);
+  } else if (ch === "}" || ch === "]") {
+    state.stack.pop();
+  }
+}
+
+function scanJsonState(snippet: string): JsonScanState {
+  const state: JsonScanState = { inString: false, escaped: false, stack: [] };
+  for (const ch of snippet) {
+    updateScanState(state, ch);
+  }
+  return state;
 }
 
 /**
@@ -15,20 +47,7 @@ export function tryParseObject(text: string): Record<string, unknown> | undefine
  * 値の無いキー (..., "genre": ) は捨て、値の途中なら閉じ引用符だけ補う。
  */
 export function closeTruncatedJson(snippet: string): string {
-  let inString = false;
-  let escaped = false;
-  const stack: string[] = [];
-  for (const ch of snippet) {
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
-      continue;
-    }
-    if (ch === '"') inString = true;
-    else if (ch === "{" || ch === "[") stack.push(ch);
-    else if (ch === "}" || ch === "]") stack.pop();
-  }
+  const { inString, escaped, stack } = scanJsonState(snippet);
 
   let out = snippet;
   if (escaped) {
@@ -49,9 +68,7 @@ export function closeTruncatedJson(snippet: string): string {
  * 応答から最初の JSON オブジェクトを取り出す。閉じ括弧まで揃っていればそのまま、
  * トークン上限で途中から切れていれば補完して読む (truncated: true)
  */
-export function extractJsonObject(
-  text: string
-): { raw: Record<string, unknown>; truncated: boolean } | undefined {
+export function extractJsonObject(text: string): { raw: Record<string, unknown>; truncated: boolean } | undefined {
   const start = text.indexOf("{");
   if (start < 0) {
     return undefined;
