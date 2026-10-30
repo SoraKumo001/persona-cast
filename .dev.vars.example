@@ -12,6 +12,11 @@ ACCESS_DISABLED="true"
 ACCESS_TEAM_DOMAIN=""
 ACCESS_AUD=""
 
+# 対談チューニング (A/B比較用。"off" で無効化、未設定は ON のまま)
+STANCE_PILOT="on"
+PERSONA_TEMP_PILOT="on"
+KEYPOINT_ASSIGN="on"
+
 # アクセス状況 (任意)。未設定でもアプリは動く (管理画面の「アクセス状況」に設定案内が出る)
 # 訪問者ハッシュのソルト (長いランダムな文字列)
 ANALYTICS_SALT=
