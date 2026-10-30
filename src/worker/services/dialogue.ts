@@ -1,19 +1,11 @@
-import type { PersonaRow } from "../db-types";
+import type { DialogueSessionRow } from "../db-types";
 import { errorMessage } from "../errors";
 import { buildConsolidateMessages, buildTurnMessages } from "../prompts";
 import type { Env, Persona } from "../types";
 import { generateChatCompletion, streamChatCompletion } from "./llm";
 import { saveMemoryChunk, searchSimilarMemories } from "./memory";
-import { PERSONA_COLUMNS, toPersona } from "./persona-store";
-
-interface DialogueSessionRow {
-  article_summary: string;
-  article_title: string;
-  created_at: string;
-  id: string;
-  persona_ids: string;
-  source_url: string;
-}
+import { listPersonasByIds, toPersona } from "./persona-store";
+import { getDialogueSession, insertMessage } from "./session-queries";
 
 export interface DialogueEvent {
   data: Record<string, unknown>;
@@ -30,11 +22,7 @@ export async function* orchestrateDialogue(
   modelName?: string
 ): AsyncGenerator<DialogueEvent, void, unknown> {
   // 1. セッション情報の取得
-  const sessionRow = await env.DB.prepare(
-    "SELECT id, source_url, article_title, article_summary, persona_ids, created_at FROM sessions WHERE id = ?"
-  )
-    .bind(sessionId)
-    .first<DialogueSessionRow>();
+  const sessionRow = await getDialogueSession(env.DB, sessionId);
 
   if (!sessionRow) {
     yield { type: "error", data: { message: "セッションが見つかりません" } };
@@ -48,12 +36,7 @@ export async function* orchestrateDialogue(
   }
 
   // 2. 参加ペルソナ情報の取得
-  const placeholders = personaIds.map(() => "?").join(",");
-  const { results: personaRows } = await env.DB.prepare(
-    `SELECT ${PERSONA_COLUMNS} FROM personas WHERE id IN (${placeholders})`
-  )
-    .bind(...personaIds)
-    .all<PersonaRow>();
+  const personaRows = await listPersonasByIds(env.DB, personaIds);
 
   const personasMap = new Map<string, Persona>();
   for (const p of personaRows) {
@@ -156,21 +139,16 @@ export async function* orchestrateDialogue(
     // メッセージをD1に保存
     const messageId = `msg_${sessionId}_${turn}_${Date.now()}`;
     const now = new Date().toISOString();
-    await env.DB.prepare(
-      `INSERT INTO messages (id, session_id, persona_id, turn_index, content, referenced_session_id, referenced_article_title, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-      .bind(
-        messageId,
-        sessionId,
-        currentPersona.id,
-        turn,
-        fullTurnContent,
-        referencedSessionId,
-        referencedArticleTitle,
-        now
-      )
-      .run();
+    await insertMessage(env.DB, {
+      id: messageId,
+      sessionId,
+      personaId: currentPersona.id,
+      turnIndex: turn,
+      content: fullTurnContent,
+      referencedSessionId,
+      referencedArticleTitle,
+      createdAt: now,
+    });
 
     yield {
       type: "turn_end",

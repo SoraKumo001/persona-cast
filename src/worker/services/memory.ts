@@ -1,16 +1,5 @@
+import type { MemoryChunkDbRow } from "../db-types";
 import type { Env } from "../types";
-
-interface MemoryChunkDbRow {
-  article_title: string;
-  created_at: string;
-  embedding_json: string | null;
-  id: string;
-  key_quotes: string;
-  persona_ids: string;
-  session_id: string;
-  source_url: string;
-  topic_summary: string;
-}
 
 export interface MemorySearchResult {
   articleTitle: string;

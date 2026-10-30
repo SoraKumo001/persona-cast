@@ -34,4 +34,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 
-.omc
+# Agent tool state & local session data (may contain credentials)
+# Matches both ./.omc/ and nested dirs such as src/worker/prompts/.omc/
+.omc/

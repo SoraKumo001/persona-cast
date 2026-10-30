@@ -1,8 +1,8 @@
 /**
- * 対談の一覧・詳細の読み取り。HTTP API (routes/sessions.ts) と、SSR の loader から呼ぶ
+ * セッション・発言の読み書き。HTTP API (routes/sessions.ts) と、SSR の loader から呼ぶ
  * server function (src/server-fns/sessions.ts) の両方で使う。
  */
-import type { MessageRow, PersonaRow, SessionRow } from "../db-types";
+import type { DialogueSessionRow, ExistingSessionRow, MessageRow, PersonaRow, SessionRow } from "../db-types";
 import { DEFAULT_GENRE, isGenre } from "./genres";
 import { PERSONA_COLUMNS, toPersona } from "./persona-store";
 import type { OgpInfo } from "./scraper";
@@ -139,6 +139,127 @@ export async function listSessions(
     total,
     totalPages,
   };
+}
+
+/** 同じ正規化URLの対談。非表示の対談も探す (同じ記事で作り直して、取り下げを回避されないように) */
+export function findSessionByNormalizedUrl(db: D1Database, normalizedUrl: string) {
+  return db
+    .prepare(
+      `SELECT ${SESSION_COLUMNS}, hidden_at as hiddenAt FROM sessions WHERE normalized_url = ? ORDER BY created_at DESC LIMIT 1`
+    )
+    .bind(normalizedUrl)
+    .first<ExistingSessionRow>();
+}
+
+/** 新規対談の保存。articleSummary は記事本文の先頭部分 */
+export function insertSession(
+  db: D1Database,
+  session: {
+    articleSummary: string;
+    articleTitle: string;
+    createdAt: string;
+    genre: string | null;
+    id: string;
+    normalizedUrl: string;
+    ogJson: string;
+    personaIds: string;
+    sourceUrl: string;
+    summary: string | null;
+  }
+) {
+  return db
+    .prepare(
+      `INSERT INTO sessions (id, source_url, normalized_url, article_title, article_summary, summary, genre, og_json, persona_ids, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      session.id,
+      session.sourceUrl,
+      session.normalizedUrl,
+      session.articleTitle,
+      session.articleSummary,
+      session.summary,
+      session.genre,
+      session.ogJson,
+      session.personaIds,
+      session.createdAt
+    )
+    .run();
+}
+
+/** 生成前チェック用。非表示の対談は見つからない扱い。発言数つき */
+export function getSessionGenerationState(db: D1Database, id: string) {
+  return db
+    .prepare(
+      `SELECT persona_ids as personaIds, (SELECT COUNT(*) FROM messages m WHERE m.session_id = sessions.id) as messageCount
+       FROM sessions WHERE id = ? AND hidden_at IS NULL`
+    )
+    .bind(id)
+    .first<{ personaIds: string; messageCount: number }>();
+}
+
+/**
+ * 生成中の印を原子的に付ける。10分以上前の印は失効扱い。
+ * 付けられたら true、既に生成中なら false
+ */
+export async function claimSessionGeneration(
+  db: D1Database,
+  id: string,
+  now = new Date(),
+  staleMs = 10 * 60 * 1000
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE sessions SET generating_at = ? WHERE id = ? AND (generating_at IS NULL OR generating_at < ?)")
+    .bind(now.toISOString(), id, new Date(now.getTime() - staleMs).toISOString())
+    .run();
+  return !!result.meta.changes;
+}
+
+/** 生成中の印を外す (失敗して発言が1件もないときのやり直し用) */
+export async function clearSessionGeneration(db: D1Database, id: string): Promise<void> {
+  await db.prepare("UPDATE sessions SET generating_at = NULL WHERE id = ?").bind(id).run();
+}
+
+/** 対談の生成に使うセッション情報。列名そのまま (別名なし) で返す */
+export function getDialogueSession(db: D1Database, id: string) {
+  return db
+    .prepare(
+      "SELECT id, source_url, article_title, article_summary, persona_ids, created_at FROM sessions WHERE id = ?"
+    )
+    .bind(id)
+    .first<DialogueSessionRow>();
+}
+
+/** 発言を1件保存する */
+export function insertMessage(
+  db: D1Database,
+  message: {
+    content: string;
+    createdAt: string;
+    id: string;
+    personaId: string;
+    referencedArticleTitle: string | null;
+    referencedSessionId: string | null;
+    sessionId: string;
+    turnIndex: number;
+  }
+) {
+  return db
+    .prepare(
+      `INSERT INTO messages (id, session_id, persona_id, turn_index, content, referenced_session_id, referenced_article_title, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      message.id,
+      message.sessionId,
+      message.personaId,
+      message.turnIndex,
+      message.content,
+      message.referencedSessionId,
+      message.referencedArticleTitle,
+      message.createdAt
+    )
+    .run();
 }
 
 /** 対談の詳細。セッション・発言ログ・参加ペルソナ。無ければ null */

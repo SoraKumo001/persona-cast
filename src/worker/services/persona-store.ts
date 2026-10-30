@@ -30,3 +30,15 @@ export async function listPersonaCandidates(db: D1Database): Promise<PersonaCand
     .all<PersonaCandidate>();
   return results;
 }
+
+/** IDを指定してペルソナをまとめて取得する (アーカイブ済みも含む。既存の対談の表示用) */
+export async function listPersonasByIds(db: D1Database, ids: string[]): Promise<PersonaRow[]> {
+  if (ids.length === 0) {
+    return [];
+  }
+  const { results } = await db
+    .prepare(`SELECT ${PERSONA_COLUMNS} FROM personas WHERE id IN (${ids.map(() => "?").join(",")})`)
+    .bind(...ids)
+    .all<PersonaRow>();
+  return results;
+}

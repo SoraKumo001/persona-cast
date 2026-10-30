@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { MemoryChunkDbRow } from "../db-types";
 import { errorMessage } from "../errors";
 import { requireAccess } from "../middleware/access";
 import { ensureDatabaseTables } from "../presets";
@@ -15,18 +16,6 @@ app.use("*", async (c, next) => {
 
 /** 1回の呼び出しで処理する件数 (埋め込みの生成と Vectorize への書き込みを、1回の実行に収める) */
 const BATCH = 50;
-
-interface ChunkRow {
-  article_title: string;
-  created_at: string;
-  embedding_json: string | null;
-  id: string;
-  key_quotes: string;
-  persona_ids: string;
-  session_id: string;
-  source_url: string;
-  topic_summary: string;
-}
 
 function parseEmbedding(json: string | null): number[] | null {
   if (!json) {
@@ -59,7 +48,7 @@ app.post("/resync", async (c) => {
      FROM memory_chunks WHERE id > ? ORDER BY id ASC LIMIT ?`
   )
     .bind(after, BATCH)
-    .all<ChunkRow>();
+    .all<MemoryChunkDbRow>();
   if (results.length === 0) {
     return c.json({ processed: 0, regenerated: 0, next: null });
   }

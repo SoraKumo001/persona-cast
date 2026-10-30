@@ -1,4 +1,3 @@
-import { normalizeUrl } from "./services/url-normalize";
 import type { Persona } from "./types";
 
 export const DEFAULT_PERSONAS: Persona[] = [
@@ -37,86 +36,21 @@ export const DEFAULT_PERSONAS: Persona[] = [
   },
 ];
 
-let tablesInitialized = false;
+// モジュール状態はisolate単位でしか共有されないため、これは同一isolate内での重複シードを避ける最適化にすぎない。
+let seedInitialized = false;
 
 /**
- * データベースのテーブルが存在しない場合、各テーブルを自動作成して初期データを投入する
+ * 初期ペルソナが空ならシードする。
+ *
+ * テーブル作成・マイグレーションは migrations/ に移管済み。ここでは DDL を行わない。
+ * 失敗時は warn に留め、呼び出し元の処理を止めない (fail-open)。
  */
 export async function ensureDatabaseTables(db: D1Database): Promise<void> {
-  if (tablesInitialized) {
+  if (seedInitialized) {
     return;
   }
 
   try {
-    await db
-      .prepare(
-        "CREATE TABLE IF NOT EXISTS personas (id TEXT PRIMARY KEY, name TEXT NOT NULL, role TEXT NOT NULL, avatar TEXT NOT NULL, theme_color TEXT NOT NULL DEFAULT '#3b82f6', personality TEXT NOT NULL, speaking_style TEXT NOT NULL, created_at TEXT NOT NULL)"
-      )
-      .run();
-
-    await db
-      .prepare(
-        "CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, source_url TEXT NOT NULL, article_title TEXT NOT NULL, article_summary TEXT NOT NULL, persona_ids TEXT NOT NULL, created_at TEXT NOT NULL)"
-      )
-      .run();
-
-    await db
-      .prepare(
-        "CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, persona_id TEXT NOT NULL REFERENCES personas(id), turn_index INTEGER NOT NULL, content TEXT NOT NULL, referenced_session_id TEXT, referenced_article_title TEXT, created_at TEXT NOT NULL)"
-      )
-      .run();
-
-    await db
-      .prepare(
-        "CREATE TABLE IF NOT EXISTS memory_chunks (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, article_title TEXT NOT NULL, source_url TEXT NOT NULL, topic_summary TEXT NOT NULL, key_quotes TEXT NOT NULL, persona_ids TEXT NOT NULL, embedding_json TEXT, created_at TEXT NOT NULL)"
-      )
-      .run();
-
-    // migrations/0002 相当の列を追加 (未適用のDB向け。既にあればスキップ)
-    await addColumnIfMissing(db, "personas", "avatar_type", "TEXT NOT NULL DEFAULT 'emoji'");
-    await addColumnIfMissing(db, "personas", "avatar_key", "TEXT");
-    await addColumnIfMissing(db, "personas", "updated_at", "TEXT");
-    await addColumnIfMissing(db, "personas", "archived_at", "TEXT");
-    await addColumnIfMissing(db, "sessions", "normalized_url", "TEXT");
-    await addColumnIfMissing(db, "sessions", "og_json", "TEXT");
-    await addColumnIfMissing(db, "sessions", "summary", "TEXT");
-    await addColumnIfMissing(db, "memory_chunks", "normalized_url", "TEXT");
-    await db.prepare("CREATE INDEX IF NOT EXISTS idx_sessions_normalized_url ON sessions(normalized_url)").run();
-
-    // migrations/0003 相当
-    await addColumnIfMissing(db, "sessions", "genre", "TEXT");
-    await db.prepare("UPDATE sessions SET genre = 'その他' WHERE genre IS NULL").run();
-    await db.prepare("CREATE INDEX IF NOT EXISTS idx_sessions_genre ON sessions(genre)").run();
-
-    // migrations/0004 相当
-    await addColumnIfMissing(db, "sessions", "generating_at", "TEXT");
-    await db
-      .prepare(
-        "CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, expires_at INTEGER NOT NULL)"
-      )
-      .run();
-
-    await db.prepare("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)").run();
-
-    // migrations/0006 相当
-    await addColumnIfMissing(db, "sessions", "hidden_at", "TEXT");
-
-    // 正規化URL未設定の既存セッションをバックフィル
-    const { results: unnormalized } = await db
-      .prepare("SELECT id, source_url FROM sessions WHERE normalized_url IS NULL")
-      .all<{ id: string; source_url: string }>();
-    for (const row of unnormalized) {
-      try {
-        await db
-          .prepare("UPDATE sessions SET normalized_url = ? WHERE id = ?")
-          .bind(normalizeUrl(row.source_url), row.id)
-          .run();
-      } catch {
-        // 不正なURLは未設定のまま残す
-      }
-    }
-
-    // 初期ペルソナが空ならシード
     const countRow = await db.prepare("SELECT count(*) as count FROM personas").first<{ count: number }>();
     if (!countRow || countRow.count === 0) {
       const now = new Date().toISOString();
@@ -130,16 +64,8 @@ export async function ensureDatabaseTables(db: D1Database): Promise<void> {
       }
     }
 
-    tablesInitialized = true;
+    seedInitialized = true;
   } catch (err) {
     console.warn("ensureDatabaseTables warning:", err);
   }
-}
-
-async function addColumnIfMissing(db: D1Database, table: string, column: string, ddl: string) {
-  const { results } = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
-  if (results.some((r) => r.name === column)) {
-    return;
-  }
-  await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`).run();
 }
