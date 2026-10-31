@@ -87,5 +87,21 @@ export function buildRss(origin: string, sessions: FeedSession[]): string {
 }
 
 export function buildRobots(origin: string): string {
-  return ["User-agent: *", "Disallow: /admin", "Disallow: /api/", "", `Sitemap: ${origin}/sitemap.xml`, ""].join("\n");
+  return [
+    "User-agent: *",
+    "Allow: /api/ogp.png",
+    "Allow: /api/sessions/*/ogp.png",
+    "Disallow: /admin",
+    "Disallow: /api/",
+    "",
+    "User-agent: Twitterbot",
+    "Allow: /",
+    "Allow: /api/ogp.png",
+    "Allow: /api/sessions/*/ogp.png",
+    "Disallow: /admin",
+    "Disallow: /api/",
+    "",
+    `Sitemap: ${origin}/sitemap.xml`,
+    "",
+  ].join("\n");
 }

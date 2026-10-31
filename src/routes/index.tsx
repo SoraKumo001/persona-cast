@@ -40,6 +40,8 @@ export const Route = createFileRoute("/")({
         { property: "og:site_name", content: "Persona-Cast" },
         { property: "og:title", content: title },
         { property: "og:description", content: description },
+        { name: "twitter:title", content: title },
+        { name: "twitter:description", content: description },
         ...(loaderData ? [{ property: "og:url", content: `${loaderData.origin}/` }] : []),
         ...(image
           ? [

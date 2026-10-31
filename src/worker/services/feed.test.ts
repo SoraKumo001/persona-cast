@@ -45,10 +45,12 @@ describe("buildRss", () => {
 });
 
 describe("buildRobots", () => {
-  test("管理画面とAPIを除き、サイトマップを知らせる", () => {
+  test("管理画面とAPIを除き、OGP画像は許可し、サイトマップを知らせる", () => {
     const txt = buildRobots("https://example.com");
     expect(txt).toContain("Disallow: /admin");
     expect(txt).toContain("Disallow: /api/");
+    expect(txt).toContain("Allow: /api/ogp.png");
+    expect(txt).toContain("Allow: /api/sessions/*/ogp.png");
     expect(txt).toContain("Sitemap: https://example.com/sitemap.xml");
   });
 });

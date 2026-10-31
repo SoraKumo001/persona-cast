@@ -36,6 +36,8 @@ export const Route = createFileRoute("/persona/$id")({
         { property: "og:description", content: description },
         { property: "og:image", content: `${loaderData.origin}/api/ogp.png` },
         { name: "twitter:card", content: "summary_large_image" },
+        { name: "twitter:title", content: title },
+        { name: "twitter:description", content: description },
         { name: "twitter:image", content: `${loaderData.origin}/api/ogp.png` },
       ],
       links: [{ rel: "canonical", href: `${loaderData.origin}/persona/${encodeURIComponent(persona.id)}` }],

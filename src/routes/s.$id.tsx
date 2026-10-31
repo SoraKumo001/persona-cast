@@ -28,6 +28,8 @@ export const Route = createFileRoute("/s/$id")({
             { property: "og:image:width", content: "1200" },
             { property: "og:image:height", content: "630" },
             { name: "twitter:card", content: "summary_large_image" },
+            { name: "twitter:title", content: loaderData.meta.title },
+            { name: "twitter:description", content: loaderData.meta.description },
             { name: "twitter:image", content: loaderData.meta.imageUrl },
           ],
           links: [{ rel: "canonical", href: loaderData.meta.pageUrl }],
