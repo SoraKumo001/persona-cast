@@ -48,12 +48,20 @@ const MID_TURN_MIN_TOTAL_TURNS = 6;
 /** 中盤は下限を上げる。短い相槌で流れるのを防ぎつつ、最終ターンの総括と長さがかぶらない範囲に収める */
 const MID_TURN_LENGTH_HINT = "3〜5文(80〜180文字)。短い相槌だけで終わらせない";
 
-/** 中盤だけに足す深掘りの指示。賛否・反例・数値の再言及のいずれかを必須にする */
+/** 中盤だけに足す深掘りの指示。既出キーワードの蒸し返しを防ぎつつ、条件・反例・トレードオフで議論を前に進める */
 const MID_TURN_INSTRUCTION = [
   "今回は対談の中盤です。直前の発言を受けたうえで、論点を一段深く掘り下げてください。",
-  "次のうち少なくとも1つを必ず入れてください: (a) 記事の主張への明確な賛否(どこに同意し、どこに引っかかるのか) (b) 記事の内容が当てはまらない反例・例外・別の見方 (c) 記事の数字やキー引用の再言及(その前提や意味を疑うなど)。",
-  "「賛成です」「なるほど」のような短い相槌だけの発言は禁止です。",
+  "ここまでの会話で既に出た数字やカギ括弧の引用は繰り返さず、次のうち少なくとも1つを入れて議論を一歩先へ進めてください: (a) 直前の発言や記事の主張が成り立つ条件・前提へのツッコミ (b) 記事の内容が当てはまらない反例・例外・現場での具体例 (c) 対立する視点のトレードオフや、まだ掘り下げていない別の角度の検討。",
+  "「賛成です」「なるほど」のような短い相槌だけの発言や、自分の前の発言の焼き直しは禁止です。",
 ].join("\n");
+
+/**
+ * 2巡目以降（各ペルソナの2回目・3回目の発言）に足す進行ガイド。
+ * 1巡目と同じ立場・担当論点を毎回注入すると、同じ数字や主張を3回繰り返す原因になるため、
+ * 2巡目以降は自己反復・既出キーワードの蒸し返しを禁じて議論の進行を促す。
+ */
+const FOLLOW_UP_ROUND_NOTE =
+  "【2巡目以降の注意】あなたは前のターンですでに自分の最初の立場を述べています。自分がすでに言った主張や、会話に既に出た数字・カギ括弧の引用を繰り返さず、直前の相手の発言への切り返しや新しい具体例・条件の検討に話を進めてください。";
 
 /** そのターンが中盤 (論点を深掘りする区間) かどうか */
 function isMidTurn(turnIndex: number, totalTurns: number): boolean {
@@ -112,6 +120,7 @@ function formatStanceBlock(stance: string): string {
     stance,
     "- これは今回の発言の出発点です。対談の流れで考えが変わったら、更新して構いません。",
     "- この文面をそのまま逐語で繰り返さないこと。必ず自分の言葉に言い換えること。",
+    "- この立場に含まれる数字・固有名詞・引用であっても、直前までの対談で他の出演者がすでに出していたら繰り返さず、「その数字」「さっきの話」と受けて自分の論点だけを出してください。",
     "- この立場は他の出演者に開示しないこと。",
   ].join("\n");
 }
@@ -185,15 +194,21 @@ export function buildTurnMessages(params: {
     personality: currentPersona.personality,
     speakingStyle: currentPersona.speakingStyle,
   });
-  // 立場は user の末尾 (発言者の役の直後) に置く。system を発言者ごとに変えないためキャッシュは壊れない
+  const isFirstRound = turnIndex < Math.max(1, allPersonas.length);
+  // 立場・担当論点は 1巡目 (各ペルソナの初発言) のみ user の末尾に置く。
+  // 2巡目以降も同じ立場・担当論点を渡し続けると、同じ数字・引用・主張を毎巡言い換えて繰り返すため、
+  // 2巡目以降は自己反復と既出キーワードの再掲を禁じる注意書きに切り替える。
+  // いずれも system ではなく user 側に置くため、プロンプトキャッシュは壊れない。
   const stanceText = params.stance?.trim();
-  // 担当論点も同じく発言者側の末尾に置く (1行)。誰が何を担当するかは発言者ごとに違うが、
-  // system は全員共通のままなのでプロンプトキャッシュは維持される。
   const assignedKeyPoints = params.assignedKeyPoints ?? [];
   const speaker = [
     speakerBase,
-    stanceText ? formatStanceBlock(stanceText) : null,
-    assignedKeyPoints.length > 0 ? formatKeyPointAssignment(assignedKeyPoints) : null,
+    ...(isFirstRound
+      ? [
+          stanceText ? formatStanceBlock(stanceText) : null,
+          assignedKeyPoints.length > 0 ? formatKeyPointAssignment(assignedKeyPoints) : null,
+        ]
+      : [FOLLOW_UP_ROUND_NOTE]),
   ]
     .filter((part): part is string => part !== null)
     .join("\n\n");
