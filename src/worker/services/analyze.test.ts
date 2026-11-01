@@ -274,6 +274,30 @@ describe("analyzeArticle", () => {
     expect(result.keyQuotes).toEqual(["コストが半分になる", "導入企業は3社に増えた"]);
     expect(result.keyQuotes).toEqual(extractiveKeyQuotes(withQuotes.content));
   });
+
+  test("SUMMARY_TOP3=off では制約文・引用検証・論点重複除去を使わない (旧挙動)", async () => {
+    const offEnv = { ...env, SUMMARY_TOP3: "off" } as unknown as Env;
+    const withQuotes = {
+      ...article,
+      content: "この記事では「コストが半分になる」と紹介された。",
+    };
+    let system = "";
+    const reply = JSON.stringify({
+      summary: "LLMの要約",
+      genre: "プログラミング・開発",
+      personaIds: ["ken", "ren"],
+      keyPoints: ["コストが半分になる", "コストが半分になった"],
+      keyQuotes: ["本文に無い引用"],
+    });
+    const result = await analyzeArticle(offEnv, "s", withQuotes, candidates, (messages) => {
+      system = messages[0].content;
+      return Promise.resolve(reply);
+    });
+    expect(system).not.toContain("3つの論点は「主張と根拠」");
+    expect(system).toContain("keyPoints は、対談で掘り下げる価値のある論点を3つ");
+    expect(result.keyQuotes).toEqual(["本文に無い引用"]);
+    expect(result.keyPoints).toEqual(["コストが半分になる", "コストが半分になった"]);
+  });
 });
 
 describe("guessGenre", () => {

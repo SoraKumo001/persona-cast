@@ -23,6 +23,24 @@ const ANALYZE_ATTEMPTS = 2;
 /** 分析は要約・論点・引用・ジャンル・ペルソナIDを1つの JSON で返すため、途切れないよう長めに取る */
 const ANALYZE_MAX_OUTPUT_TOKENS = 2000;
 
+/**
+ * 要約Top3 で analyze-system.md に足した制約文の先頭。
+ * SUMMARY_TOP3=off の A/B では、この行だけを外して導入前のプロンプトに戻す。
+ */
+const TOP3_CONSTRAINT_PREFIXES = [
+  "summary は、記事の主張",
+  "3つの論点は「主張と根拠」",
+  "3件は本文の互いに重ならない箇所",
+] as const;
+
+/** 制約付きプロンプトから要約Top3 の指示行だけを取り除く (既定 ON では何もしない) */
+export function stripTop3Constraints(prompt: string): string {
+  return prompt
+    .split("\n")
+    .filter((line) => !TOP3_CONSTRAINT_PREFIXES.some((prefix) => line.startsWith(prefix)))
+    .join("\n");
+}
+
 export interface PersonaCandidate {
   /** これまでに出演した対談の数 (偏りを避けるため選定に使う) */
   appearances?: number;
@@ -327,8 +345,11 @@ function normalizeAnalysis(
   raw: Record<string, unknown>,
   candidates: PersonaCandidate[],
   /** 本文。渡されたときだけ引用を本文と突き合わせる (幻覚引用の除去) */
-  content?: string
+  content?: string,
+  /** false にすると導入前の挙動 (論点の重複除去・引用のグラウンディングをしない) に戻す */
+  options: { top3?: boolean } = {}
 ): ParsedAnalysis {
+  const top3 = options.top3 !== false;
   const valid = new Set(candidates.map((c) => c.id));
   const ids: string[] = Array.isArray(raw.personaIds)
     ? [
@@ -338,19 +359,18 @@ function normalizeAnalysis(
       ]
     : [];
 
-  const keyPoints = dedupeKeyPoints(
-    Array.isArray(raw.keyPoints)
-      ? [
-          ...new Set(
-            raw.keyPoints
-              .filter((p: unknown): p is string => typeof p === "string")
-              .map((p) => p.replace(/\s+/gu, " ").trim())
-              .filter(Boolean)
-              .map((p) => p.slice(0, KEY_POINT_MAX_CHARS))
-          ),
-        ]
-      : []
-  );
+  const rawPoints = Array.isArray(raw.keyPoints)
+    ? [
+        ...new Set(
+          raw.keyPoints
+            .filter((p: unknown): p is string => typeof p === "string")
+            .map((p) => p.replace(/\s+/gu, " ").trim())
+            .filter(Boolean)
+            .map((p) => p.slice(0, KEY_POINT_MAX_CHARS))
+        ),
+      ]
+    : [];
+  const keyPoints = top3 ? dedupeKeyPoints(rawPoints) : rawPoints.slice(0, KEY_POINTS_MAX);
 
   const quoteSource = Array.isArray(raw.keyQuotes) ? raw.keyQuotes : raw.key_quotes;
   const rawQuotes = Array.isArray(quoteSource) ? quoteSource : [];
@@ -370,7 +390,7 @@ function normalizeAnalysis(
   ];
   // 本文が分からないとき (直接 parseAnalysis を呼ぶ場合) は従来どおり検証しない
   const keyQuotes =
-    typeof content === "string"
+    top3 && typeof content === "string"
       ? groundKeyQuotes(normalizedQuotes, content)
       : normalizedQuotes.slice(0, KEY_QUOTES_MAX);
 
@@ -434,6 +454,8 @@ export async function analyzeArticle(
   candidates: PersonaCandidate[],
   complete: typeof generateChatCompletion = generateChatCompletion
 ): Promise<Analysis> {
+  // A/B比較用: SUMMARY_TOP3=off で導入前の挙動 (制約文なし・引用検証/重複除去なし) に戻す
+  const top3 = env.SUMMARY_TOP3 !== "off";
   const adultByKeywords = looksAdult(
     `${article.title}\n${article.ogp.description ?? ""}\n${article.content.slice(0, 3000)}`
   );
@@ -464,6 +486,9 @@ export async function analyzeArticle(
     maxPersonas: MAX_PERSONAS,
     candidates: rotated,
   });
+  if (!top3) {
+    messages[0].content = stripTop3Constraints(messages[0].content);
+  }
 
   // 通信の失敗・JSON として読めない応答・トークン上限で切れた応答は、1回だけやり直す。
   // 切れていても読めた項目は保持しておき、やり直しも失敗したらそれを使う
@@ -474,7 +499,7 @@ export async function analyzeArticle(
         maxOutputTokens: ANALYZE_MAX_OUTPUT_TOKENS,
       });
       const extracted = extractJsonObject(text);
-      const current = extracted ? normalizeAnalysis(extracted.raw, candidates, article.content) : {};
+      const current = extracted ? normalizeAnalysis(extracted.raw, candidates, article.content, { top3 }) : {};
       parsed = current;
       if (current.summary && current.genre && current.personaIds && !extracted?.truncated) {
         break;

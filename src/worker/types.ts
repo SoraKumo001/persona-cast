@@ -42,6 +42,7 @@ export interface Env {
   OPENCODE_DEFAULT_MODEL?: string;
   PERSONA_TEMP_PILOT?: string; // "off" でペルソナ別 temperature を止め、全員 0.75 に戻す。A/B比較用
   STANCE_PILOT?: string; // "off" で対談前の立場生成 (Phase 1) を止める。A/B比較用
+  SUMMARY_TOP3?: string; // "off" で要約Top3 (構造化プロンプト+引用検証/論点重複除去) を止める。A/B比較用
   VECTORIZE?: VectorizeBinding; // Cloudflare Vectorize binding
   WEB_ANALYTICS_TOKEN?: string; // Cloudflare Web Analytics のビーコンのトークン (空なら出さない)
 }

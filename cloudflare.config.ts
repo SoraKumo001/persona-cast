@@ -32,6 +32,8 @@ export default defineConfig({
       PERSONA_TEMP_PILOT: bindings.secret(),
       // A/B比較用: "off" で論点の割当を止める。未設定は ON のまま
       KEYPOINT_ASSIGN: bindings.secret(),
+      // A/B比較用: "off" で要約Top3 (制約付きプロンプト+引用検証/論点重複除去) を止める。未設定は ON のまま
+      SUMMARY_TOP3: bindings.secret(),
       AVATARS: bindings.r2({ name: "persona-cast-avatars" }),
       // アクセス状況: 記録先のデータセット名は src/worker/services/analytics-track.ts の DATASET と同じにする
       ANALYTICS: bindings.analyticsEngineDataset({ name: "persona_cast_events" }),

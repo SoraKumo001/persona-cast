@@ -16,6 +16,8 @@ ACCESS_AUD=""
 STANCE_PILOT="on"
 PERSONA_TEMP_PILOT="on"
 KEYPOINT_ASSIGN="on"
+# "off" で要約Top3 (制約付きプロンプト+引用検証/論点重複除去) を止める
+SUMMARY_TOP3="on"
 
 # アクセス状況 (任意)。未設定でもアプリは動く (管理画面の「アクセス状況」に設定案内が出る)
 # 訪問者ハッシュのソルト (長いランダムな文字列)
