@@ -87,6 +87,63 @@ describe("parseAnalysis の引用グラウンディング", () => {
   test("本文を渡さない場合は従来どおり検証しない", () => {
     expect(parseAnalysis('{"keyQuotes":["本文に無い引用"]}', candidates).keyQuotes).toEqual(["本文に無い引用"]);
   });
+
+  describe("緩和後も正当な引用を落とさない (回帰)", () => {
+    const longArticle =
+      "OpenAI は 2024年5月に GPT-4o を公開した。従来モデルと比べて" +
+      "「応答の速度が約2倍に向上し、画像の理解も可能になった」と報告されている。" +
+      "導入企業の担当者は「コストが半分になり、問い合わせ対応の工数も3割減った」と話す。";
+
+    /** 表記・約物・省略の揺れだけがある正当な引用 (本文には必ず対応する記述がある) */
+    const legitimate = [
+      // 約物の有無 (読点・句点・引用符)
+      "「応答の速度が約2倍に向上し、画像の理解も可能になった。」",
+      // 文中の読点の追加と空白の挿入
+      "応答の速度が、約2倍に向上し 画像の理解も可能になった",
+      // 全角数字・全角空白・大小文字の揺れ
+      "応答の　速度が　約２倍に　向上し、画像の理解も　可能になった",
+      // 省略記号での語の脱落
+      "コストが半分になり…問い合わせ対応の工数も3割減った",
+      // 大小文字・ハイフン・空白の揺れ
+      "openaiは 2024年5月に GPT-4o を公開した",
+      // 引用符をまたいだ文の連結
+      "従来モデルと比べて応答の速度が約2倍に向上し",
+      // 助詞の足し込み (被覆率での判定に落ちる微小な揺れ)
+      "コストが半分になり、問い合わせ対応の工数も3割ほど減った",
+    ];
+
+    /** keyQuotes は保存前に前後の引用符除去と空白の畳み込みを受けるので、同じ正規化で比べる */
+    const asStored = (quote: string) =>
+      quote
+        .replace(/^[「『"]|[」』"]$/gu, "")
+        .replace(/\s+/gu, " ")
+        .trim();
+
+    test("正当な引用の落下率は 0%", () => {
+      const dropped = legitimate.filter((quote) => {
+        const parsed = parseAnalysis(JSON.stringify({ keyQuotes: [quote] }), candidates, longArticle);
+        return parsed.keyQuotes?.[0] !== asStored(quote);
+      });
+      expect(dropped).toEqual([]);
+    });
+
+    test("数値の改変・文の継ぎ合わせは従来どおり幻覚として落とす", () => {
+      const hallucinations = [
+        // 数値の改変
+        "応答の速度が約5倍に向上し、画像の理解も可能になった",
+        // 本文に無い結論文の足し込み
+        "問い合わせ対応の工数も3割減り、売上も2倍になった",
+        // 離れた文の継ぎ合わせ
+        "OpenAIは従来モデルと比べて問い合わせ対応の工数も3割減った",
+        // 本文と無関係な文
+        "この記事はAI業界の未来を予測する内容である",
+      ];
+      for (const quote of hallucinations) {
+        const parsed = parseAnalysis(JSON.stringify({ keyQuotes: [quote] }), candidates, longArticle);
+        expect(parsed.keyQuotes ?? []).not.toContain(asStored(quote));
+      }
+    });
+  });
 });
 
 describe("parseAnalysis の論点重複除去", () => {

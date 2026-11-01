@@ -253,8 +253,26 @@ export function fallbackPersonas(
 const KEY_POINT_GRAM = 4;
 const KEY_POINT_DUPLICATE_SIMILARITY = 0.5;
 
-/** 本文との突き合わせ用に、引用符・空白・全半角・末尾の句読点の違いを吸収する */
+/**
+ * 本文との突き合わせで無視する文字 (空白・句読点・括弧・約物)。
+ * LLM が引用符や読点を足したり落としたりしても、本文と照合できるようにする
+ */
+const MATCH_NOISE =
+  /[\s。、．.，,・･:：;；!?！？…‥「」『』（）()［］\u005B\u005D【】〈〉《》〔〕｛｝{}＜＞<>"'“”‘’‐‑–—―~〜=＝+＋*＊/／\\|｜#＃&＆@＠^＾%％$＄¥￥`｀°-]+/gu;
+
+/**
+ * 本文との突き合わせ用の正規化。全半角・大文字小文字・空白・約物の違いをすべて吸収する。
+ * 引用符や末尾の句読点だけでなく、文中の読点や括弧の有無も無視する
+ */
 function normalizeForMatch(text: string): string {
+  return text.normalize("NFKC").toLowerCase().replace(MATCH_NOISE, "");
+}
+
+/**
+ * 論点の類似度用の正規化。空白・全半角・大文字小文字・末尾の句読点だけを吸収する。
+ * 重複判定の挙動を変えないよう、引用の照合とは別に保つ
+ */
+function normalizeForSimilarity(text: string): string {
   return text
     .normalize("NFKC")
     .replace(/^[\s「『“”"'’]+|[\s」』“”"'’]+$/gu, "")
@@ -265,7 +283,7 @@ function normalizeForMatch(text: string): string {
 
 /** 文字 n-gram の集合 (短い文字列はその文字列自体を1件として扱う) */
 function ngramSet(text: string): Set<string> {
-  const normalized = normalizeForMatch(text);
+  const normalized = normalizeForSimilarity(text);
   if (!normalized) {
     return new Set();
   }
@@ -311,6 +329,102 @@ function dedupeKeyPoints(points: string[]): string[] {
 }
 
 /**
+ * 引用の照合で、完全な包含に加えて許容する揺れ。
+ * 引用にだけ現れる文字 (本文に無い語の足し込み) を、この割合・長さまでなら見逃す。
+ * 数値の改変 (3社→5社 など) は幻覚として落としたいので、数字の食い違いは別途禁じる
+ */
+const QUOTE_MATCH_MIN_COVERAGE = 0.9;
+/** 一致が途切れてよい連続文字数 (これを超える足し込みは引用とみなさない) */
+const QUOTE_MATCH_MAX_GAP = 2;
+/** 被覆率で判定する最短の引用長 (短い引用は完全一致のみ認める) */
+const QUOTE_MATCH_MIN_CHARS = 8;
+
+/**
+ * needle の start 文字目から伸ばせる最長の一致を二分探索で求め、
+ * 本文側の開始位置と一致長を返す (見つからなければ length は 0)
+ */
+function longestMatchFrom(
+  needle: string,
+  start: number,
+  content: string,
+  from: number
+): { at: number; length: number } {
+  let best = 0;
+  let bestAt = 0;
+  let lo = 1;
+  let hi = needle.length - start;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const at = content.indexOf(needle.slice(start, start + mid), from);
+    if (at < 0) {
+      hi = mid - 1;
+      continue;
+    }
+    best = mid;
+    bestAt = at;
+    lo = mid + 1;
+  }
+  return { at: bestAt, length: best };
+}
+
+/**
+ * 正規化済みの引用が本文中に実在するか。
+ * まず包含判定 (約物・空白・全半角・大小文字の差は normalizeForMatch で吸収済み) を見て、
+ * 一致しない場合だけ、本文側の語順を保ったまま断片をたどる被覆率で判定する。
+ * 本文から語を落とした引用 (「…」での省略や文の連結) は cursor が進むだけで減点されない
+ */
+function isGroundedIn(needle: string, normalizedContent: string): boolean {
+  if (!needle) {
+    return false;
+  }
+  if (normalizedContent.includes(needle)) {
+    return true;
+  }
+  if (needle.length < QUOTE_MATCH_MIN_CHARS) {
+    return false;
+  }
+  const required = needle.length * QUOTE_MATCH_MIN_COVERAGE;
+  let covered = 0;
+  let cursor = 0;
+  let previousEnd = -1;
+  let jumped = 0;
+  let skippedRun = 0;
+  let i = 0;
+  while (i < needle.length) {
+    // 残りをすべて一致させても閾値に届かないなら、ここで打ち切る
+    if (covered + (needle.length - i) < required) {
+      return false;
+    }
+    const match = longestMatchFrom(needle, i, normalizedContent, cursor);
+    if (match.length === 0) {
+      // 数字の食い違いは数値の改変なので、たとえ1文字でも引用として認めない
+      if (/\d/u.test(needle[i])) {
+        return false;
+      }
+      i += 1;
+      skippedRun += 1;
+      if (skippedRun > QUOTE_MATCH_MAX_GAP) {
+        return false;
+      }
+      continue;
+    }
+    // 飛ばした本文が引用の長さを超えるなら、離れた文を継ぎ合わせた幻覚とみなす
+    if (previousEnd >= 0) {
+      jumped += Math.max(0, match.at - previousEnd);
+      if (jumped > needle.length) {
+        return false;
+      }
+    }
+    covered += match.length;
+    previousEnd = match.at + match.length;
+    cursor = previousEnd;
+    i += match.length;
+    skippedRun = 0;
+  }
+  return covered >= required;
+}
+
+/**
  * 引用を本文と突き合わせ、本文に実在しない引用 (幻覚) を落とす。
  * 落とした分は本文からの抜き出し (extractiveKeyQuotes) で補充する。
  */
@@ -321,7 +435,7 @@ function groundKeyQuotes(quotes: string[], content: string): string[] {
   const grounded: string[] = [];
   for (const quote of candidates) {
     const needle = normalizeForMatch(quote);
-    if (!needle || seen.has(needle) || !normalizedContent.includes(needle)) {
+    if (!needle || seen.has(needle) || !isGroundedIn(needle, normalizedContent)) {
       continue;
     }
     seen.add(needle);
