@@ -13,8 +13,22 @@ const KEY_POINT_MAX_CHARS = 80;
 /** 記事から抜き出すキー引用の数と、1件あたりの長さ */
 const KEY_QUOTES_MAX = 3;
 const KEY_QUOTE_MAX_CHARS = 120;
-/** 保存する本文冒頭の長さ (分析要約・論点と合わせて 3000 字弱に収める) */
-const HYBRID_BODY_CHARS = 1500;
+/**
+ * 保存する本文の長さ (分析要約・論点と合わせて 3000 字弱に収める)。
+ * 先頭の続き (800字) + 後半の重要文 (700字) の合計で、以前の 1500 字と同じ枠に収める
+ */
+const HYBRID_BODY_HEAD_CHARS = 800;
+const HYBRID_BODY_KEY_CHARS = 700;
+const HYBRID_BODY_CHARS = HYBRID_BODY_HEAD_CHARS + HYBRID_BODY_KEY_CHARS;
+/** 先頭の続きと重要文の間に入れる区切り (間に飛ばした本文があることを示す) */
+const HYBRID_BODY_GAP = " … ";
+/**
+ * 後半から拾う「重要文」の手がかり。数値 (主張の裏付け) と、逆接・対比・反論 (議論の分かれ目) を含む文。
+ * embedding は使わず、正規表現だけで判定する
+ */
+const KEY_SENTENCE_HINT = /[0-9０-９]|しかし|だが|ただし|一方|反論/u;
+/** 文の切れ目 (句点・感嘆・疑問) と改行 */
+const SENTENCE_SPLIT = /(?<=[。．！？!?])|\n/u;
 const BODY_MARKER = "【本文冒頭】";
 const MIN_PERSONAS = 3;
 const MAX_PERSONAS = 4;
@@ -112,6 +126,56 @@ export function articleBody(content: string): string {
   return (index >= 0 ? content.slice(index + BODY_MARKER.length) : content).trim();
 }
 
+/**
+ * 本文の後半から、数値や逆接・対比・反論を含む文だけを読み順で最大 maxChars 字ぶん拾う。
+ * 該当する文が無ければ空文字を返す
+ */
+export function extractKeySentences(text: string, maxChars: number): string {
+  if (maxChars <= 0) {
+    return "";
+  }
+  const seen = new Set<string>();
+  const picked: string[] = [];
+  let total = 0;
+  for (const raw of text.split(SENTENCE_SPLIT)) {
+    if (total >= maxChars) {
+      break;
+    }
+    const sentence = raw.replace(/\s+/gu, " ").trim();
+    if (!sentence || seen.has(sentence) || !KEY_SENTENCE_HINT.test(sentence)) {
+      continue;
+    }
+    // 文の間に空白を1文字入れるため、2文目以降はその分だけ枠を減らす
+    const room = maxChars - total - (picked.length > 0 ? 1 : 0);
+    if (room <= 0) {
+      break;
+    }
+    // 1文だけで枠を超えるときは、最初の1文だけ切り詰めて拾う (2文目以降は飛ばす)
+    if (sentence.length > room && picked.length > 0) {
+      continue;
+    }
+    seen.add(sentence);
+    const piece = sentence.slice(0, room);
+    picked.push(piece);
+    total += piece.length + (picked.length > 1 ? 1 : 0);
+  }
+  return picked.join(" ");
+}
+
+/**
+ * 本文の切出し。先頭 800 字に、後半の重要文 (数値・逆接・対比・反論) を最大 700 字ぶん足す。
+ * 後半に重要文が無ければ、従来どおり先頭 800 字だけを返す
+ */
+function bodyExcerpt(content: string): string {
+  const flat = articleBody(content).replace(/\s+/gu, " ").trim();
+  if (flat.length <= HYBRID_BODY_CHARS) {
+    return flat;
+  }
+  const head = flat.slice(0, HYBRID_BODY_HEAD_CHARS);
+  const key = extractKeySentences(flat.slice(HYBRID_BODY_HEAD_CHARS), HYBRID_BODY_KEY_CHARS);
+  return key ? `${head}${HYBRID_BODY_GAP}${key}` : head;
+}
+
 const QUOTES_MARKER = "【キー引用】";
 const POINTS_MARKER = "【論点】";
 /** 見出し (【...】) の直前までを1セクションとして取り出す */
@@ -176,7 +240,7 @@ export function buildArticleSummary(
   if (points.length > 0) {
     sections.push(`【論点】\n${points.map((p) => `- ${p}`).join("\n")}`);
   }
-  const body = articleBody(content).replace(/\s+/gu, " ").trim().slice(0, HYBRID_BODY_CHARS);
+  const body = bodyExcerpt(content);
   if (body) {
     sections.push(`${BODY_MARKER}\n${body}`);
   }

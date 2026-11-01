@@ -5,6 +5,7 @@ import {
   buildArticleSummary,
   defaultTurns,
   extractiveKeyQuotes,
+  extractKeySentences,
   fallbackPersonas,
   keyPointSimilarity,
   parseAnalysis,
@@ -216,6 +217,58 @@ describe("fallbackPersonas (ジャンル指定)", () => {
     expect(fallbackPersonas(candidates, "seed", 3, "プログラミング・開発")).toEqual(
       fallbackPersonas(candidates, "seed", 3)
     );
+  });
+});
+
+describe("buildArticleSummary (本文の切出し)", () => {
+  /** 12文字で、重要文の手がかり (数字・逆接) を含まない文 */
+  const filler = "これは補足の説明です。";
+  const bodyOf = (saved: string): string => saved.split("【本文冒頭】\n")[1] ?? "";
+
+  test("後半の数値・逆接を含む文を拾って本文冒頭に足す", () => {
+    const key = "ただし、著者の計測ではコストは50%減り、速度は1.5〜2倍になった。";
+    // 2400字の前置きの後ろに重要文を置く (以前の先頭1500字固定では落ちていた位置)
+    const content = `${filler.repeat(200)}${key}${"まとめの段落です。".repeat(20)}`;
+    const body = bodyOf(buildArticleSummary({ summary: "要約" }, content));
+
+    expect(body).toContain("コストは50%減り");
+    expect(body).toContain("1.5〜2倍");
+    // 先頭部分は従来どおり残す
+    expect(body.startsWith(filler)).toBe(true);
+    // 800字 + 区切り + 700字の枠に収める
+    expect(body.length).toBeLessThanOrEqual(1503);
+  });
+
+  test("反論・対比の文も拾う", () => {
+    const content = `${filler.repeat(200)}一方で、この主張には反論もある。${filler.repeat(20)}`;
+    expect(bodyOf(buildArticleSummary({ summary: "要約" }, content))).toContain("この主張には反論もある");
+  });
+
+  test("後半に重要文が無ければ、先頭800字だけにする", () => {
+    const body = bodyOf(buildArticleSummary({ summary: "要約" }, filler.repeat(200)));
+    expect(body).toHaveLength(800);
+    expect(body).not.toContain("…");
+  });
+
+  test("短い本文はそのまま使う", () => {
+    const body = bodyOf(buildArticleSummary({ summary: "要約" }, "本文冒頭の内容"));
+    expect(body).toBe("本文冒頭の内容");
+  });
+});
+
+describe("extractKeySentences", () => {
+  test("手がかりの無い文は拾わない", () => {
+    expect(extractKeySentences("これは普通の文です。これも普通の文です。", 100)).toBe("");
+  });
+
+  test("数値・逆接の文を読み順に、上限内で拾う", () => {
+    const text = "前置きの文です。数値は3倍になった。しかし課題も残る。";
+    expect(extractKeySentences(text, 100)).toBe("数値は3倍になった。 しかし課題も残る。");
+    expect(extractKeySentences(text, 5)).toBe("数値は3倍");
+  });
+
+  test("同じ文は1回だけ拾う", () => {
+    expect(extractKeySentences("数字は2倍。数字は2倍。", 100)).toBe("数字は2倍。");
   });
 });
 
