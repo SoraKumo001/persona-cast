@@ -4,7 +4,9 @@ import {
   analyzeArticle,
   buildArticleSummary,
   defaultTurns,
+  extractiveKeyQuotes,
   fallbackPersonas,
+  keyPointSimilarity,
   parseAnalysis,
   parseArticleSummary,
 } from "./analyze";
@@ -53,6 +55,66 @@ describe("parseAnalysis", () => {
       genre: "サイエンス",
       personaIds: ["ken"],
     });
+  });
+});
+
+describe("parseAnalysis の引用グラウンディング", () => {
+  const content =
+    "この記事では「コストが半分になる」と紹介された。別の調査では「導入企業は3社に増えた」と報告している。";
+
+  test("本文に無い引用 (幻覚) は落とし、本文からの抜き出しで補充する", () => {
+    const text = JSON.stringify({ keyQuotes: ["コストが半分になる", "実際には書かれていない引用文"] });
+    expect(parseAnalysis(text, candidates, content).keyQuotes).toEqual(["コストが半分になる", "導入企業は3社に増えた"]);
+  });
+
+  test("空白・全半角の違いは無視して本文と照合する", () => {
+    const article = "GPT-4 は従来より高速に動作する。";
+    expect(
+      parseAnalysis(JSON.stringify({ keyQuotes: ["GPT－4は従来より高速に動作する"] }), candidates, article).keyQuotes
+    ).toEqual(["GPT－4は従来より高速に動作する"]);
+  });
+
+  test("本文に実在する引用が足りていれば、余計な補充はしない", () => {
+    const text = JSON.stringify({ keyQuotes: ["コストが半分になる"] });
+    expect(parseAnalysis(text, candidates, content).keyQuotes).toEqual(["コストが半分になる"]);
+  });
+
+  test("全部幻覚で本文からも抜き出せなければ、keyQuotes は未設定 (呼び出し側のフォールバックに任せる)", () => {
+    const text = JSON.stringify({ keyQuotes: ["存在しない引用"] });
+    expect(parseAnalysis(text, candidates, "本文には引用も数字も無い。").keyQuotes).toBeUndefined();
+  });
+
+  test("本文を渡さない場合は従来どおり検証しない", () => {
+    expect(parseAnalysis('{"keyQuotes":["本文に無い引用"]}', candidates).keyQuotes).toEqual(["本文に無い引用"]);
+  });
+});
+
+describe("parseAnalysis の論点重複除去", () => {
+  test("類似した論点を落とし、後ろの候補を繰り上げる", () => {
+    const text = JSON.stringify({
+      keyPoints: [
+        "コストが半分になる",
+        "コストが半分になった",
+        "導入企業が3社に増えた",
+        "セキュリティ面の懸念が残る",
+        "運用の手間が課題になる",
+      ],
+    });
+    expect(parseAnalysis(text, candidates).keyPoints).toEqual([
+      "コストが半分になる",
+      "導入企業が3社に増えた",
+      "セキュリティ面の懸念が残る",
+    ]);
+  });
+
+  test("文字4-gramのJaccard類似度で重複を判定する", () => {
+    expect(keyPointSimilarity("コストが半分になる", "コストが半分になった")).toBeGreaterThan(0.5);
+    expect(keyPointSimilarity("コストが半分になる", "セキュリティ面の懸念が残る")).toBe(0);
+  });
+
+  test("言い回しが違えば重複として落とさない", () => {
+    const text = JSON.stringify({ keyPoints: ["コストが半分になる", "料金は従来の半額になった"] });
+    expect(parseAnalysis(text, candidates).keyPoints).toEqual(["コストが半分になる", "料金は従来の半額になった"]);
   });
 });
 
@@ -195,6 +257,22 @@ describe("analyzeArticle", () => {
       return Promise.resolve(good);
     });
     expect(options[0]).toEqual({ maxOutputTokens: 2000 });
+  });
+
+  test("LLM の幻覚引用は本文と突き合わせて落とし、本文からの引用で補充する", async () => {
+    const withQuotes = {
+      ...article,
+      content: "この記事では「コストが半分になる」と紹介された。別の調査では「導入企業は3社に増えた」と報告している。",
+    };
+    const reply = JSON.stringify({
+      summary: "LLMの要約",
+      genre: "プログラミング・開発",
+      personaIds: ["ken", "ren"],
+      keyQuotes: ["コストが半分になる", "実在しない引用文です", "もう一つ存在しない引用"],
+    });
+    const result = await analyzeArticle(env, "s", withQuotes, candidates, () => Promise.resolve(reply));
+    expect(result.keyQuotes).toEqual(["コストが半分になる", "導入企業は3社に増えた"]);
+    expect(result.keyQuotes).toEqual(extractiveKeyQuotes(withQuotes.content));
   });
 });
 

@@ -228,8 +228,107 @@ export function fallbackPersonas(
   return picked.slice(0, size).map((c) => c.id);
 }
 
+/** 論点の重複判定に使う文字 n-gram の長さと、重複とみなす Jaccard 類似度 */
+const KEY_POINT_GRAM = 4;
+const KEY_POINT_DUPLICATE_SIMILARITY = 0.5;
+
+/** 本文との突き合わせ用に、引用符・空白・全半角・末尾の句読点の違いを吸収する */
+function normalizeForMatch(text: string): string {
+  return text
+    .normalize("NFKC")
+    .replace(/^[\s「『“”"'’]+|[\s」』“”"'’]+$/gu, "")
+    .replace(/\s+/gu, "")
+    .replace(/[。．.、,，!?！？…]+$/u, "")
+    .toLowerCase();
+}
+
+/** 文字 n-gram の集合 (短い文字列はその文字列自体を1件として扱う) */
+function ngramSet(text: string): Set<string> {
+  const normalized = normalizeForMatch(text);
+  if (!normalized) {
+    return new Set();
+  }
+  if (normalized.length <= KEY_POINT_GRAM) {
+    return new Set([normalized]);
+  }
+  const grams = new Set<string>();
+  for (let i = 0; i + KEY_POINT_GRAM <= normalized.length; i++) {
+    grams.add(normalized.slice(i, i + KEY_POINT_GRAM));
+  }
+  return grams;
+}
+
+/** 文字4-gramの Jaccard 係数。語順や助詞の違いに強い簡易な類似度 */
+export function keyPointSimilarity(a: string, b: string): number {
+  const left = ngramSet(a);
+  const right = ngramSet(b);
+  if (left.size === 0 || right.size === 0) {
+    return 0;
+  }
+  let intersection = 0;
+  for (const gram of left) {
+    if (right.has(gram)) {
+      intersection++;
+    }
+  }
+  return intersection / (left.size + right.size - intersection);
+}
+
+/** 似すぎた論点 (Jaccard > 0.5) を落とし、後ろの候補を繰り上げて最大3つにする */
+function dedupeKeyPoints(points: string[]): string[] {
+  const kept: string[] = [];
+  for (const point of points) {
+    if (kept.some((k) => keyPointSimilarity(point, k) > KEY_POINT_DUPLICATE_SIMILARITY)) {
+      continue;
+    }
+    kept.push(point);
+    if (kept.length >= KEY_POINTS_MAX) {
+      break;
+    }
+  }
+  return kept;
+}
+
+/**
+ * 引用を本文と突き合わせ、本文に実在しない引用 (幻覚) を落とす。
+ * 落とした分は本文からの抜き出し (extractiveKeyQuotes) で補充する。
+ */
+function groundKeyQuotes(quotes: string[], content: string): string[] {
+  const normalizedContent = normalizeForMatch(content);
+  const candidates = quotes.slice(0, KEY_QUOTES_MAX);
+  const seen = new Set<string>();
+  const grounded: string[] = [];
+  for (const quote of candidates) {
+    const needle = normalizeForMatch(quote);
+    if (!needle || seen.has(needle) || !normalizedContent.includes(needle)) {
+      continue;
+    }
+    seen.add(needle);
+    grounded.push(quote);
+  }
+  // 本文に無い引用 (幻覚) を落とした分だけ、本文からの抜き出しで補充する
+  const target = Math.min(KEY_QUOTES_MAX, new Set(candidates.map(normalizeForMatch).filter(Boolean)).size);
+  for (const quote of extractiveKeyQuotes(content)) {
+    if (grounded.length >= target) {
+      break;
+    }
+    const needle = normalizeForMatch(quote);
+    if (!needle || seen.has(needle)) {
+      continue;
+    }
+    seen.add(needle);
+    grounded.push(quote);
+  }
+  return grounded;
+}
+
 /** LLM が返した JSON を検証して、分析結果の形に整える */
-function normalizeAnalysis(raw: Record<string, unknown>, candidates: PersonaCandidate[]): ParsedAnalysis {
+function normalizeAnalysis(
+  raw: Record<string, unknown>,
+  candidates: PersonaCandidate[],
+  /** 本文。渡されたときだけ引用を本文と突き合わせる (幻覚引用の除去) */
+  content?: string
+): ParsedAnalysis {
   const valid = new Set(candidates.map((c) => c.id));
   const ids: string[] = Array.isArray(raw.personaIds)
     ? [
@@ -239,21 +338,23 @@ function normalizeAnalysis(raw: Record<string, unknown>, candidates: PersonaCand
       ]
     : [];
 
-  const keyPoints = Array.isArray(raw.keyPoints)
-    ? [
-        ...new Set(
-          raw.keyPoints
-            .filter((p: unknown): p is string => typeof p === "string")
-            .map((p) => p.replace(/\s+/gu, " ").trim())
-            .filter(Boolean)
-            .map((p) => p.slice(0, KEY_POINT_MAX_CHARS))
-        ),
-      ].slice(0, KEY_POINTS_MAX)
-    : [];
+  const keyPoints = dedupeKeyPoints(
+    Array.isArray(raw.keyPoints)
+      ? [
+          ...new Set(
+            raw.keyPoints
+              .filter((p: unknown): p is string => typeof p === "string")
+              .map((p) => p.replace(/\s+/gu, " ").trim())
+              .filter(Boolean)
+              .map((p) => p.slice(0, KEY_POINT_MAX_CHARS))
+          ),
+        ]
+      : []
+  );
 
   const quoteSource = Array.isArray(raw.keyQuotes) ? raw.keyQuotes : raw.key_quotes;
   const rawQuotes = Array.isArray(quoteSource) ? quoteSource : [];
-  const keyQuotes = [
+  const normalizedQuotes = [
     ...new Set(
       rawQuotes
         .filter((q: unknown): q is string => typeof q === "string")
@@ -266,7 +367,12 @@ function normalizeAnalysis(raw: Record<string, unknown>, candidates: PersonaCand
         .filter(Boolean)
         .map((q) => q.slice(0, KEY_QUOTE_MAX_CHARS))
     ),
-  ].slice(0, KEY_QUOTES_MAX);
+  ];
+  // 本文が分からないとき (直接 parseAnalysis を呼ぶ場合) は従来どおり検証しない
+  const keyQuotes =
+    typeof content === "string"
+      ? groundKeyQuotes(normalizedQuotes, content)
+      : normalizedQuotes.slice(0, KEY_QUOTES_MAX);
 
   const result: ParsedAnalysis = {
     summary:
@@ -290,9 +396,9 @@ function normalizeAnalysis(raw: Record<string, unknown>, candidates: PersonaCand
 }
 
 /** LLMの出力から JSON を取り出し、ジャンル・ペルソナIDを検証して返す。不正な項目は捨てる */
-export function parseAnalysis(text: string, candidates: PersonaCandidate[]): ParsedAnalysis {
+export function parseAnalysis(text: string, candidates: PersonaCandidate[], content?: string): ParsedAnalysis {
   const extracted = extractJsonObject(text);
-  return extracted ? normalizeAnalysis(extracted.raw, candidates) : {};
+  return extracted ? normalizeAnalysis(extracted.raw, candidates, content) : {};
 }
 
 /** 参加者が足りなければ補い、候補が複数あるのに1人だけにならないようにする */
@@ -368,7 +474,7 @@ export async function analyzeArticle(
         maxOutputTokens: ANALYZE_MAX_OUTPUT_TOKENS,
       });
       const extracted = extractJsonObject(text);
-      const current = extracted ? normalizeAnalysis(extracted.raw, candidates) : {};
+      const current = extracted ? normalizeAnalysis(extracted.raw, candidates, article.content) : {};
       parsed = current;
       if (current.summary && current.genre && current.personaIds && !extracted?.truncated) {
         break;
