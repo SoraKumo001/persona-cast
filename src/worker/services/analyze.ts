@@ -20,8 +20,11 @@ const MIN_PERSONAS = 3;
 const MAX_PERSONAS = 4;
 /** 分析の LLM 呼び出しを試す回数 (1回目が失敗・不完全だったときに、1回だけやり直す) */
 const ANALYZE_ATTEMPTS = 2;
-/** 分析は要約・論点・引用・ジャンル・ペルソナIDを1つの JSON で返すため、途切れないよう長めに取る */
-const ANALYZE_MAX_OUTPUT_TOKENS = 2000;
+/**
+ * 分析は要約・論点・引用・ジャンル・ペルソナIDを1つの JSON で返すため、途切れないよう長めに取る。
+ * 要約Top3 の制約文を入れた treat 側は 2650〜3150 トークン程度を要し、2000 では必ず length で切れるため 4000 にする
+ */
+const ANALYZE_MAX_OUTPUT_TOKENS = 4000;
 
 /**
  * 要約Top3 で analyze-system.md に足した制約文の先頭。
@@ -444,6 +447,16 @@ function completePersonas(
 }
 
 /**
+ * 応答の良さ。要約・ジャンル・ペルソナIDは無いとフォールバックになるため重く数え、
+ * 途中で切れた応答は同点なら負けにする (欠けた項目の多さより、切れていないことを優先する)
+ */
+function analysisScore(parsed: ParsedAnalysis, truncated: boolean): number {
+  const required = [parsed.summary, parsed.genre, parsed.personaIds].filter((v) => v !== undefined).length;
+  const optional = [parsed.keyPoints, parsed.keyQuotes, parsed.adult].filter((v) => v !== undefined).length;
+  return required * 2 + optional - (truncated ? 1 : 0);
+}
+
+/**
  * 記事を分析し、短い要約・ジャンル・対談に参加するペルソナを一度のLLM呼び出しで決める。
  * 失敗してもセッション作成は止めず、ヒューリスティックにフォールバックする。
  */
@@ -493,6 +506,7 @@ export async function analyzeArticle(
   // 通信の失敗・JSON として読めない応答・トークン上限で切れた応答は、1回だけやり直す。
   // 切れていても読めた項目は保持しておき、やり直しも失敗したらそれを使う
   let parsed: ParsedAnalysis = {};
+  let bestScore = Number.NEGATIVE_INFINITY;
   for (let attempt = 1; attempt <= ANALYZE_ATTEMPTS; attempt++) {
     try {
       const text = await complete(messages, env, sessionId, undefined, {
@@ -500,13 +514,19 @@ export async function analyzeArticle(
       });
       const extracted = extractJsonObject(text);
       const current = extracted ? normalizeAnalysis(extracted.raw, candidates, article.content, { top3 }) : {};
-      parsed = current;
-      if (current.summary && current.genre && current.personaIds && !extracted?.truncated) {
+      const truncated = extracted?.truncated ?? false;
+      // 2回目の応答が空でも、1回目に読めた部分結果を捨てず、良い方 (より揃っている方) を残す
+      const score = analysisScore(current, truncated);
+      if (score > bestScore) {
+        parsed = current;
+        bestScore = score;
+      }
+      if (current.summary && current.genre && current.personaIds && !truncated) {
         break;
       }
       console.warn(
         `analyzeArticle: incomplete response (attempt ${attempt}/${ANALYZE_ATTEMPTS}) session=${sessionId} ` +
-          `truncated=${extracted?.truncated ?? false} ` +
+          `truncated=${truncated} ` +
           `has summary=${!!current.summary} genre=${!!current.genre} personaIds=${!!current.personaIds} ` +
           `head=${JSON.stringify(text.slice(0, 200))}`
       );

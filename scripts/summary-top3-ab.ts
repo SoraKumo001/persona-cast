@@ -153,7 +153,7 @@ function parseArgs() {
   const maxTokensArg = process.argv.find((a) => a.startsWith("--max-tokens="));
   return {
     runs: Number(runsArg?.slice("--runs=".length) ?? 3),
-    // 0 (既定) は本番と同じ ANALYZE_MAX_OUTPUT_TOKENS=2000。診断用に上限だけ差し替えられる
+    // 0 (既定) は本番と同じ ANALYZE_MAX_OUTPUT_TOKENS=4000。診断用に上限だけ差し替えられる
     maxTokens: Number(maxTokensArg?.slice("--max-tokens=".length) ?? 0),
     outDir: outArg?.slice("--out=".length) ?? join(process.env.TEMP ?? ".", "opencode", "summary-top3-ab"),
   };
@@ -190,7 +190,7 @@ async function main() {
   console.log(
     `summary-top3 A/B: articles=${articles.length} arms=${arms.length} runs=${runs} ` +
       `model=${vars.OPENCODE_DEFAULT_MODEL || "(default)"} ` +
-      `maxOutputTokens=${maxTokens > 0 ? maxTokens : "2000 (production)"} ` +
+      `maxOutputTokens=${maxTokens > 0 ? maxTokens : "4000 (production)"} ` +
       `totalCalls=${articles.length * arms.length * runs}`
   );
 
@@ -319,7 +319,7 @@ async function main() {
   const payload = {
     generatedAt: new Date().toISOString(),
     runs,
-    maxOutputTokens: maxTokens > 0 ? maxTokens : 2000,
+    maxOutputTokens: maxTokens > 0 ? maxTokens : 4000,
     model: vars.OPENCODE_DEFAULT_MODEL || "(default)",
     articles: articles.map((a) => ({ id: a.id, title: a.title, contentChars: a.content.length })),
     aggregate,

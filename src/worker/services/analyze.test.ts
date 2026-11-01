@@ -250,13 +250,33 @@ describe("analyzeArticle", () => {
     expect(result.personaIds.slice(0, 2)).toEqual(["ken", "ren"]);
   });
 
+  test("2回目が空応答でも、1回目に読めた部分結果を捨てない", async () => {
+    const partial = '{"summary":"LLMの要約","genre":"サイエンス","personaIds":["ken","yuki"]';
+    const replies = [partial, ""];
+    let calls = 0;
+    const result = await analyzeArticle(env, "s", article, candidates, () => Promise.resolve(replies[calls++]));
+    expect(calls).toBe(2);
+    expect(result.summary).toBe("LLMの要約");
+    expect(result.genre).toBe("サイエンス");
+    expect(result.personaIds.slice(0, 2)).toEqual(["ken", "yuki"]);
+  });
+
+  test("1回目の部分結果より2回目が揃っていれば、2回目を採用する", async () => {
+    const replies = ['{"summary":"途中の要約"}', good];
+    let calls = 0;
+    const result = await analyzeArticle(env, "s", article, candidates, () => Promise.resolve(replies[calls++]));
+    expect(calls).toBe(2);
+    expect(result.summary).toBe("LLMの要約");
+    expect(result.genre).toBe("プログラミング・開発");
+  });
+
   test("分析呼び出しでは長めのトークン上限を渡す", async () => {
     const options: unknown[] = [];
     await analyzeArticle(env, "s", article, candidates, (_messages, _env, _sessionId, _model, opts) => {
       options.push(opts);
       return Promise.resolve(good);
     });
-    expect(options[0]).toEqual({ maxOutputTokens: 2000 });
+    expect(options[0]).toEqual({ maxOutputTokens: 4000 });
   });
 
   test("LLM の幻覚引用は本文と突き合わせて落とし、本文からの引用で補充する", async () => {
