@@ -244,10 +244,28 @@ describe("buildArticleSummary (本文の切出し)", () => {
     expect(bodyOf(buildArticleSummary({ summary: "要約" }, content))).toContain("この主張には反論もある");
   });
 
-  test("後半に重要文が無ければ、先頭800字だけにする", () => {
+  test("後半に重要文が無ければ、先頭部は文境界までに丸める", () => {
+    // filler は11文字なので、800字を超えない最後の文末は 792 字
     const body = bodyOf(buildArticleSummary({ summary: "要約" }, filler.repeat(200)));
-    expect(body).toHaveLength(800);
+    expect(body).toBe(filler.repeat(72));
     expect(body).not.toContain("…");
+  });
+
+  test("英語の本文でも語中で切らない (文末のピリオドで丸める)", () => {
+    const sentence = "Practical tuning of the pipeline needs careful measurement and steady iteration. ";
+    const content = sentence.repeat(20);
+    const body = bodyOf(buildArticleSummary({ summary: "要約" }, content));
+
+    expect(body.length).toBeLessThan(800);
+    expect(content.startsWith(body)).toBe(true);
+    expect(body.endsWith(".")).toBe(true);
+    // 切れ目の直後は空白 (単語の途中で切れていない)
+    expect(content[body.length]).toBe(" ");
+  });
+
+  test("文末が1つも無ければ800字で切る", () => {
+    const body = bodyOf(buildArticleSummary({ summary: "要約" }, "a".repeat(3000)));
+    expect(body).toBe("a".repeat(800));
   });
 
   test("短い本文はそのまま使う", () => {

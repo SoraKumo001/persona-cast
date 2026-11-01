@@ -29,6 +29,11 @@ const HYBRID_BODY_GAP = " … ";
 const KEY_SENTENCE_HINT = /[0-9０-９]|しかし|だが|ただし|一方|反論/u;
 /** 文の切れ目 (句点・感嘆・疑問) と改行 */
 const SENTENCE_SPLIT = /(?<=[。．！？!?])|\n/u;
+/**
+ * 文末とみなす位置。日本語の句点・感嘆・疑問と、英語のピリオド (直後が空白か末尾のとき)。
+ * 先頭部の切出しを文境界に丸めるときに使う
+ */
+const SENTENCE_END = /[。．！？!?]|\.(?=\s|$)/gu;
 const BODY_MARKER = "【本文冒頭】";
 const MIN_PERSONAS = 3;
 const MAX_PERSONAS = 4;
@@ -163,16 +168,33 @@ export function extractKeySentences(text: string, maxChars: number): string {
 }
 
 /**
+ * 先頭部の切出し。maxChars を超えない最後の文末の直後で切る (語中で切らない)。
+ * 文末が1つも無ければ maxChars で切る
+ */
+function headExcerpt(text: string, maxChars: number): string {
+  let end = 0;
+  for (const match of text.matchAll(SENTENCE_END)) {
+    const at = match.index + match[0].length;
+    if (at > maxChars) {
+      break;
+    }
+    end = at;
+  }
+  return text.slice(0, end > 0 ? end : maxChars);
+}
+
+/**
  * 本文の切出し。先頭 800 字に、後半の重要文 (数値・逆接・対比・反論) を最大 700 字ぶん足す。
- * 後半に重要文が無ければ、従来どおり先頭 800 字だけを返す
+ * 先頭部は文境界に丸めるため、語中で切れない。
+ * 後半に重要文が無ければ、先頭部だけを返す
  */
 function bodyExcerpt(content: string): string {
   const flat = articleBody(content).replace(/\s+/gu, " ").trim();
   if (flat.length <= HYBRID_BODY_CHARS) {
     return flat;
   }
-  const head = flat.slice(0, HYBRID_BODY_HEAD_CHARS);
-  const key = extractKeySentences(flat.slice(HYBRID_BODY_HEAD_CHARS), HYBRID_BODY_KEY_CHARS);
+  const head = headExcerpt(flat, HYBRID_BODY_HEAD_CHARS);
+  const key = extractKeySentences(flat.slice(head.length), HYBRID_BODY_KEY_CHARS);
   return key ? `${head}${HYBRID_BODY_GAP}${key}` : head;
 }
 
