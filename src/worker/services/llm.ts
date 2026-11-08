@@ -87,7 +87,9 @@ export async function* streamChatCompletion(
   const result = streamText({
     model,
     ...splitSystem(messages),
-    maxOutputTokens: 1200,
+    // 推論トークンもこの上限に含まれる。1200 だと推論だけで使い切り、本文が空の発言になることがあった。
+    // 発言の長さはプロンプトで制御するので、ここは打ち切りが起きない十分大きな値にする
+    maxOutputTokens: 8000,
     temperature,
     onError: ({ error }) => {
       streamError = error;
@@ -112,8 +114,8 @@ export interface GenerateOptions {
   maxOutputTokens?: number;
 }
 
-/** 一括生成の既定トークン数 (対談の記憶抽出など、短い応答で足りる用途) */
-const DEFAULT_MAX_OUTPUT_TOKENS = 1000;
+/** 一括生成の既定トークン数 (対談の記憶抽出など)。推論トークンも上限に含まれるので十分大きくする */
+const DEFAULT_MAX_OUTPUT_TOKENS = 8000;
 
 /**
  * @ai-sdk の generateText を使って要約・記憶抽出用の一括生成

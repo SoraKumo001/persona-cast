@@ -41,9 +41,10 @@ const MAX_PERSONAS = 4;
 const ANALYZE_ATTEMPTS = 2;
 /**
  * 分析は要約・論点・引用・ジャンル・ペルソナIDを1つの JSON で返すため、途切れないよう長めに取る。
- * 要約Top3 の制約文を入れた treat 側は 2650〜3150 トークン程度を要し、2000 では必ず length で切れるため 4000 にする
+ * 要約Top3 の制約文を入れた treat 側は 2650〜3150 トークン程度を要し、2000 では必ず length で切れる。
+ * 推論トークンも上限に含まれるので、打ち切りが起きない十分大きな値にする
  */
-const ANALYZE_MAX_OUTPUT_TOKENS = 4000;
+const ANALYZE_MAX_OUTPUT_TOKENS = 8000;
 
 /**
  * 要約Top3 で analyze-system.md に足した制約文の先頭。

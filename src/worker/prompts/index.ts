@@ -47,16 +47,56 @@ const MID_TURN_START_INDEX = 3;
 const MID_TURN_TAIL_MARGIN = 2;
 const MID_TURN_MIN_TOTAL_TURNS = 6;
 
-/** 中盤は下限を上げる。短い相槌で流れるのを防ぎつつ、最終ターンの総括と長さがかぶらない範囲に収める */
-const MID_TURN_LENGTH_HINT = "3〜5文(80〜180文字)。短い相槌だけで終わらせない";
+/**
+ * 中盤の「手」。ターンごとに違う手を割り当てる。
+ * 全ターン同じ「条件・反例を挙げる」指示だと「一部賛成＋ただし」の連鎖になり、検討会の議事録のように単調になるため。
+ * 手の性質に合わせて長さも変え、中盤の長さが揃うのを防ぐ (どの手も内容を要求するので相槌には崩れない)。
+ */
+const MID_TURN_MOVES: readonly { instruction: string; lengthHint: string }[] = [
+  {
+    instruction:
+      "【ひっくり返す】相手の理屈をそのまま使って、相手と逆の結論まで持っていってください。「その理屈なら、むしろ〜じゃない？」のように、部分修正ではなく話の向きを変える一撃にしてください。",
+    lengthHint: "2〜3文(60〜120文字)",
+  },
+  {
+    instruction:
+      "【場面にする】ここまでの話を、聴き手が自分の身に置き換えられる一つの具体的な場面(誰が・いつ・何に困る/得するか)で描いてください。「たとえば」で始める架空の場面で構いません。",
+    lengthHint: "3〜5文(120〜200文字)",
+  },
+  {
+    instruction:
+      "【意外なものに例える】この話と同じ構造を持つ、まったく別の分野のもの(日常生活・スポーツ・料理など)に例えて、話の正体を言い当ててください。例えだけで終わらせず、その例えだから見える、まだ誰も言っていない点を1つ出してください。",
+    lengthHint: "3〜4文(90〜170文字)",
+  },
+  {
+    instruction:
+      "【本音を漏らす】役割の建前を一度外し、自分の立場の痛いところや実は揺らいでいる点を、自分の性格らしい感情を込めて認めてください。そのうえで「それでも〜」と踏みとどまるか、「だから考えを変える」と動くか、どちらかに着地してください。",
+    lengthHint: "2〜4文(70〜140文字)",
+  },
+];
 
-/** 中盤だけに足す深掘りの指示。既出キーワードの蒸し返しを防ぎつつ、条件・反例・トレードオフで議論を前に進める */
-const MID_TURN_INSTRUCTION = [
-  "今回は対談の中盤です。直前の発言を受けたうえで、論点を一段深く掘り下げてください。",
-  "ここまでの会話で既に出た数字やカギ括弧の引用は繰り返さず、次のうち少なくとも1つを入れて議論を一歩先へ進めてください: (a) 直前の発言や記事の主張が成り立つ条件・前提へのツッコミ (b) 記事の内容が当てはまらない反例・例外・現場での具体例 (c) 対立する視点のトレードオフや、まだ掘り下げていない別の角度の検討。",
-  "担当論点が指定されている場合は、この(a)(b)(c)を自分の担当論点の範囲から選んでください。",
-  "「賛成です」「なるほど」のような短い相槌だけの発言や、自分の前の発言の焼き直しは禁止です。",
-].join("\n");
+function pickMidTurnMove(turnIndex: number): { instruction: string; lengthHint: string } {
+  return MID_TURN_MOVES[(turnIndex - MID_TURN_START_INDEX) % MID_TURN_MOVES.length];
+}
+
+/** 中盤だけに足す指示。ターンごとの「手」で話を動かし、既出キーワードの蒸し返しと相槌への崩落を防ぐ */
+function buildMidTurnInstruction(turnIndex: number): string {
+  return [
+    "今回は対談の中盤、番組の見せ場です。直前の発言を受けて、話を別の景色へ動かしてください。",
+    `今回の手: ${pickMidTurnMove(turnIndex).instruction}`,
+    "ここまでの会話で既に出た数字やカギ括弧の引用は繰り返さないでください。担当論点が指定されている場合は、その範囲でこの手を使ってください。",
+    "「賛成です」「なるほど」のような短い相槌だけの発言や、自分の前の発言の焼き直しは禁止です。",
+  ].join("\n");
+}
+
+/** 1巡目の返し。各自の立場を早い段階でぶつけ、序盤から対立の構図を見せる */
+const FIRST_ROUND_INSTRUCTION =
+  "今回は番組の序盤です。さっきの第一声に乗っかって解説するのではなく、あなたならではの切り口を旗揚げして、聴き手に「この人はそっちの立場か」と分からせてください。";
+
+/** 締めの直前の山場。最終ターンの結論に向けて、話の核心を一度言葉にさせる */
+const CLIMAX_LENGTH_HINT = "2〜4文(70〜160文字)";
+const CLIMAX_INSTRUCTION =
+  "今回は番組の山場です。ここまで誰も言葉にしていない、この話の核心を言い切ってください。「正体」という語や「〜の話じゃなくて〜の話だ」という型は使わず、具体的な言葉で言ってください。新しい対策の提案はしないでください。";
 
 /**
  * 2巡目以降（各ペルソナの2回目・3回目の発言）に足す進行ガイド。
@@ -74,17 +114,25 @@ function isMidTurn(turnIndex: number, totalTurns: number): boolean {
   return turnIndex >= MID_TURN_START_INDEX && turnIndex < totalTurns - MID_TURN_TAIL_MARGIN;
 }
 
+/** 最終ターンの1つ前 (山場) かどうか。短い対談では序盤と重なるので中盤と同じ最小ターン数を要求する */
+function isClimaxTurn(turnIndex: number, totalTurns: number): boolean {
+  return totalTurns >= MID_TURN_MIN_TOTAL_TURNS && turnIndex === totalTurns - 2;
+}
+
 /**
  * そのターンの「長さの目安」。
- * - 中盤は深掘り指示(a)(b)(c)と競合する短文HINT (LENGTH_HINTS の short) を完全に排除し、
- *   中盤用の目安に固定する。
- * - 中盤以外は turnIndex % 5 ではなく「その話者が何回目の発言か + 話者の並び順」で回す。
+ * - 中盤は短文HINT (LENGTH_HINTS の short) を排除し、その回の手に合った目安を使う。
+ * - 山場は結論を言い切れる長さに固定する。
+ * - それ以外は turnIndex % 5 ではなく「その話者が何回目の発言か + 話者の並び順」で回す。
  *   ターン番号基準のままだと、話者ごとに当たる目安の位置が固定され、
  *   特定の話者だけ毎回短い/長いという偏りが構造化されるため。
  */
 function pickLengthHint(turnIndex: number, totalTurns: number, speakerIndex: number, speakerCount: number): string {
   if (isMidTurn(turnIndex, totalTurns)) {
-    return MID_TURN_LENGTH_HINT;
+    return pickMidTurnMove(turnIndex).lengthHint;
+  }
+  if (isClimaxTurn(turnIndex, totalTurns)) {
+    return CLIMAX_LENGTH_HINT;
   }
   const speakerTurn = Math.floor(turnIndex / Math.max(1, speakerCount));
   const index = (speakerTurn + Math.max(0, speakerIndex)) % LENGTH_HINTS.length;
@@ -289,7 +337,9 @@ export function buildTurnMessages(params: {
     renderPrompt(dialogueInstructionReply, {
       lengthHint: pickLengthHint(turnIndex, totalTurns, speakerIndex, speakerCount),
     }),
-    midTurn ? MID_TURN_INSTRUCTION : null,
+    midTurn ? buildMidTurnInstruction(turnIndex) : null,
+    isFirstRound && !midTurn ? FIRST_ROUND_INSTRUCTION : null,
+    isClimaxTurn(turnIndex, totalTurns) ? CLIMAX_INSTRUCTION : null,
   ]
     .filter((part): part is string => part !== null)
     .join("\n");
@@ -301,7 +351,13 @@ export function buildTurnMessages(params: {
       content: renderPrompt(dialogueTurn, {
         history: recentHistory.map((h) => `${h.personaName}: 「${h.text}」`).join("\n\n"),
         speaker,
-        instruction: isLastTurn ? renderPrompt(dialogueInstructionFinal) : replyInstruction,
+        // 冒頭の発言は履歴の上限で落ちるので、締めで立ち返れるよう全履歴の先頭から渡す
+        instruction: isLastTurn
+          ? renderPrompt(dialogueInstructionFinal, {
+              openingSpeaker: params.history[0]?.personaName ?? "不明",
+              openingLine: params.history[0]?.text ?? "なし",
+            })
+          : replyInstruction,
       }),
     },
   ];

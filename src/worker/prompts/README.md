@@ -16,7 +16,7 @@ LLM に渡す文面は、ここの `*.md` を編集して変更します。`inde
 | `dialogue-memory-item.md` | 対談: 過去の対談記憶1件分 | index, articleTitle, topicSummary, keyQuotes |
 | `dialogue-opening.md` | 対談: 最初の発言の依頼 (user) | speaker, articleTitle |
 | `dialogue-turn.md` | 対談: 2回目以降の依頼 (user) | history, speaker, instruction |
-| `dialogue-instruction-reply.md` / `-final.md` | 対談: 通常 / 最終ターンの指示 | (reply) lengthHint / (final) なし |
+| `dialogue-instruction-reply.md` / `-final.md` | 対談: 通常 / 最終ターンの指示 | (reply) lengthHint / (final) openingSpeaker, openingLine |
 | `stance-system.md` / `-user.md` | 対談前の立場生成 (Phase 1、1ペルソナ1回、エフェメラル) | (system) なし / (user) name, role, personality, speakingStyle, others, articleTitle, articleSummary, articleKeyQuotes, keyPoints |
 | `consolidate-system.md` / `-user.md` | 対談後の記憶の要約 | (user) articleTitle, conversation |
 | `analyze-system.md` / `-user.md` | 記事の分析 (要約・ジャンル・参加者) | (system) genres, minPersonas, maxPersonas, personaList / (user) title, content |

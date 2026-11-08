@@ -201,41 +201,62 @@ describe("全テンプレートの組み立て", () => {
     expect(secondRound[1].content).toContain("【2巡目以降の注意】");
   });
 
-  test("中盤 (9ターンなら4〜7ターン目) は既出の数字・引用を繰り返さず条件・反例・トレードオフで深掘りし、短い相槌だけを禁じる", () => {
-    for (const turnIndex of [3, 4, 5, 6]) {
+  test("中盤 (9ターンなら4〜7ターン目) はターンごとに違う手を割り当て、蒸し返しと短い相槌だけを禁じる", () => {
+    const moves = ["【ひっくり返す】", "【場面にする】", "【意外なものに例える】", "【本音を漏らす】"];
+    [3, 4, 5, 6].forEach((turnIndex, i) => {
       const user = buildTurnMessages({ ...turn, turnIndex, totalTurns: 9 })[1].content;
       expect(user).toContain("対談の中盤");
-      expect(user).toContain("条件・前提");
-      expect(user).toContain("反例");
-      expect(user).toContain("繰り返さず");
+      expect(user).toContain(moves[i]);
+      for (const other of moves.filter((_, j) => j !== i)) {
+        expect(user).not.toContain(other);
+      }
+      expect(user).toContain("繰り返さないでください");
       expect(user).toContain("短い相槌だけの発言や、自分の前の発言の焼き直しは禁止");
-      // 長さの目安は下限80字以上
-      expect(user).toContain("80〜180文字");
-      // 最終ターンの総括とはかぶらない
+      expect(user).not.toContain("一言〜一文だけ");
       expect(user).not.toContain("最終ターン");
-    }
+    });
   });
 
-  test("中盤の外 (3ターン目・8ターン目) は深掘り指示を付けない", () => {
+  test("中盤の外 (3ターン目・8ターン目) は手を付けない", () => {
     for (const turnIndex of [2, 7]) {
       const user = buildTurnMessages({ ...turn, turnIndex, totalTurns: 9 })[1].content;
       expect(user).not.toContain("対談の中盤");
-      expect(user).not.toContain("80〜180文字");
+      expect(user).not.toContain("今回の手");
     }
   });
 
-  test("最終ターンは従来どおり総括で、中盤の深掘り指示は入らない", () => {
-    const last = buildTurnMessages({ ...turn, turnIndex: 8, totalTurns: 9 })[1].content;
-    expect(last).toContain("最終ターン");
-    expect(last).not.toContain("対談の中盤");
-    expect(last).not.toContain("80〜180文字");
+  test("1巡目は立場の旗揚げ、締めの直前は山場の指示になる", () => {
+    const first = buildTurnMessages({ ...turn, turnIndex: 1, totalTurns: 9 })[1].content;
+    const climax = buildTurnMessages({ ...turn, turnIndex: 7, totalTurns: 9 })[1].content;
+    const mid = buildTurnMessages({ ...turn, turnIndex: 4, totalTurns: 9 })[1].content;
+    expect(first).toContain("番組の序盤");
+    expect(climax).toContain("番組の山場");
+    expect(mid).not.toContain("番組の序盤");
+    expect(mid).not.toContain("番組の山場");
   });
 
-  test("System のルールに中盤の深掘り (短い相槌だけの禁止) が入っている", () => {
+  test("最終ターンは冒頭の発言に立ち返る。冒頭が履歴の上限で落ちていても渡す", () => {
+    const history = Array.from({ length: 8 }, (_, i) => ({ personaName: "ケン", text: `発言${i}` }));
+    const last = buildTurnMessages({ ...turn, history, turnIndex: 8, totalTurns: 9 })[1].content;
+    expect(last).toContain("最終ターン");
+    expect(last).toContain("番組の最初の発言(ケン)はこうでした: 「発言0」");
+    expect(last).not.toContain("対談の中盤");
+    expect(last).not.toContain("今回の手");
+    expect(last).not.toContain("番組の山場");
+  });
+
+  test("System のルールに中盤の深掘りと単調さの防止が入っている", () => {
     const [system] = buildTurnMessages(turn);
     expect(system.content).toContain("中盤の深掘り");
     expect(system.content).toContain("反例");
-    expect(system.content).toContain("禁止");
+    expect(system.content).toContain("「一部賛成＋ただし」の禁止");
+    expect(system.content).toContain("会議にしない");
+  });
+
+  test("第一声は紹介や要約ではなく掴みを求める", () => {
+    const user = buildTurnMessages({ ...turn, turnIndex: 0, isFirstSpeaker: true, history: [] })[1].content;
+    expect(user).toContain("一番意外な事実");
+    expect(user).toContain("紹介や要約から始めないでください");
   });
 });
 

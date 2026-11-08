@@ -404,7 +404,7 @@ describe("analyzeArticle", () => {
       options.push(opts);
       return Promise.resolve(good);
     });
-    expect(options[0]).toEqual({ maxOutputTokens: 4000 });
+    expect(options[0]).toEqual({ maxOutputTokens: 8000 });
   });
 
   test("LLM の幻覚引用は本文と突き合わせて落とし、本文からの引用で補充する", async () => {
