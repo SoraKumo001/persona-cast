@@ -2,26 +2,38 @@
  * セッション・発言の読み書き。HTTP API (routes/sessions.ts) と、SSR の loader から呼ぶ
  * server function (src/server-fns/sessions.ts) の両方で使う。
  */
-import type { DialogueSessionRow, ExistingSessionRow, MessageRow, PersonaRow, SessionRow } from "../db-types";
+import type {
+  DialogueSessionRow,
+  ExistingSessionRow,
+  MessageRow,
+  PersonaRow,
+  SessionMode,
+  SessionRow,
+} from "../db-types";
 import { DEFAULT_GENRE, isGenre } from "./genres";
 import { PERSONA_COLUMNS, toPersona } from "./persona-store";
 import type { OgpInfo } from "./scraper";
 
 export const SESSION_COLUMNS =
-  "id, source_url as sourceUrl, normalized_url as normalizedUrl, article_title as articleTitle, article_summary as articleSummary, summary, genre, og_json as ogJson, persona_ids as personaIds, created_at as createdAt";
+  "id, source_url as sourceUrl, normalized_url as normalizedUrl, article_title as articleTitle, article_summary as articleSummary, summary, genre, mode, og_json as ogJson, persona_ids as personaIds, created_at as createdAt";
 
 // 発言が1件以上あり、管理者が非表示にしていない対談のみを一覧に出す
 export const HAS_MESSAGES = "EXISTS (SELECT 1 FROM messages m WHERE m.session_id = sessions.id) AND hidden_at IS NULL";
 
 export function toSession(row: SessionRow) {
-  const { ogJson, personaIds, ...rest } = row;
+  const { ogJson, personaIds, mode, ...rest } = row;
   let ogp: OgpInfo | null = null;
   try {
     ogp = ogJson ? (JSON.parse(ogJson) as OgpInfo) : null;
   } catch {
     // 壊れたJSONは無視
   }
-  return { ...rest, ogp, personaIds: JSON.parse(personaIds || "[]") as string[] };
+  return {
+    ...rest,
+    mode: (mode === "debate" || mode === "heated" ? mode : "article") as SessionMode,
+    ogp,
+    personaIds: JSON.parse(personaIds || "[]") as string[],
+  };
 }
 
 /** 一覧のカードに出す、参加ペルソナの要約 */
@@ -160,6 +172,7 @@ export function insertSession(
     createdAt: string;
     genre: string | null;
     id: string;
+    mode?: SessionMode;
     normalizedUrl: string;
     ogJson: string;
     personaIds: string;
@@ -169,8 +182,8 @@ export function insertSession(
 ) {
   return db
     .prepare(
-      `INSERT INTO sessions (id, source_url, normalized_url, article_title, article_summary, summary, genre, og_json, persona_ids, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sessions (id, source_url, normalized_url, article_title, article_summary, summary, genre, mode, og_json, persona_ids, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       session.id,
@@ -180,6 +193,7 @@ export function insertSession(
       session.articleSummary,
       session.summary,
       session.genre,
+      session.mode ?? "article",
       session.ogJson,
       session.personaIds,
       session.createdAt
@@ -227,7 +241,7 @@ export async function clearSessionGeneration(db: D1Database, id: string): Promis
 export function getDialogueSession(db: D1Database, id: string) {
   return db
     .prepare(
-      "SELECT id, source_url, article_title, article_summary, persona_ids, created_at FROM sessions WHERE id = ?"
+      "SELECT id, source_url, article_title, article_summary, persona_ids, created_at, COALESCE(mode, 'article') as mode FROM sessions WHERE id = ?"
     )
     .bind(id)
     .first<DialogueSessionRow>();

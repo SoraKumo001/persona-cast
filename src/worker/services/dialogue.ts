@@ -5,16 +5,22 @@ import type { Env, Persona } from "../types";
 import { parseArticleSummary } from "./analyze";
 import { assignKeyPoints } from "./keypoint-assignment";
 import { generateChatCompletion, streamChatCompletion } from "./llm";
+import {
+  extensionAmount,
+  isExtendCheckTurn,
+  shouldExtendDialogue,
+} from "./dialogue-extend";
 import { MEMORY_MIN_SCORE, saveMemoryChunk, searchSimilarMemories } from "./memory";
 import { detectMemoryReference } from "./memory-reference";
 import { listPersonasByIds, toPersona } from "./persona-store";
 import { personaTemperature } from "./persona-temperature";
 import { getDialogueSession, insertMessage } from "./session-queries";
+import { speakerIndexForTurn, withOpenerFirst } from "./speaker-order";
 import { generateStances } from "./stance";
 
 export interface DialogueEvent {
   data: Record<string, unknown>;
-  type: "session_start" | "turn_start" | "chunk" | "turn_end" | "session_end" | "error";
+  type: "session_start" | "length_update" | "turn_start" | "chunk" | "turn_end" | "session_end" | "error";
 }
 
 /**
@@ -47,7 +53,9 @@ export async function* orchestrateDialogue(
   for (const p of personaRows) {
     personasMap.set(p.id, toPersona(p));
   }
-  const activePersonas = personaIds.map((id) => personasMap.get(id)).filter((p): p is Persona => p !== undefined);
+  const activePersonas = withOpenerFirst(
+    personaIds.map((id) => personasMap.get(id)).filter((p): p is Persona => p !== undefined)
+  );
 
   // 保存時のハイブリッド要約からキー引用・論点を復元し、対談プロンプトへ渡す
   const {
@@ -57,6 +65,8 @@ export async function* orchestrateDialogue(
   } = parseArticleSummary(sessionRow.article_summary);
   const effectiveSummary = articleSummary || sessionRow.article_summary;
   const keyQuotesText = articleKeyQuotes.length > 0 ? articleKeyQuotes.map((q) => `「${q}」`).join("\n") : undefined;
+  const promptMode =
+    sessionRow.mode === "heated" ? "heated" : sessionRow.mode === "debate" ? "debate" : "article";
   // 論点割当パイロット: keyPoints を personas 順に分散所有させる。
   // KEYPOINT_ASSIGN=off なら空 Map になり、プロンプトはパイロット前と同じになる。
   const keyPointAssignments = assignKeyPoints(activePersonas, articleKeyPoints, env);
@@ -75,12 +85,17 @@ export async function* orchestrateDialogue(
         articleKeyQuotes: keyQuotesText,
         keyPoints: articleKeyPoints.length > 0 ? articleKeyPoints : undefined,
         keyPointAssignments,
+        mode: promptMode,
       },
       env,
       sessionId,
       { modelName }
     ),
   ]);
+
+  const baseTurns = totalTurns;
+  let plannedTurns = totalTurns;
+  let extended = false;
 
   yield {
     type: "session_start",
@@ -95,15 +110,37 @@ export async function* orchestrateDialogue(
         topicSummary: m.topicSummary,
         score: Math.round(m.score * 100) / 100,
       })),
-      totalTurns,
+      totalTurns: plannedTurns,
     },
   };
 
   const conversationHistory: { personaName: string; text: string }[] = [];
 
-  // 4. 各ターンの掛け合いループ
-  for (let turn = 0; turn < totalTurns; turn++) {
-    const currentPersona = activePersonas[turn % activePersonas.length];
+  // 4. 各ターンの掛け合いループ。山場直前に最大1回だけ延長判定する
+  for (let turn = 0; turn < plannedTurns; turn++) {
+    if (isExtendCheckTurn(turn, plannedTurns, extended)) {
+      const decision = await shouldExtendDialogue(
+        {
+          articleTitle: sessionRow.article_title,
+          history: conversationHistory,
+          keyPoints: articleKeyPoints.length > 0 ? articleKeyPoints : undefined,
+          mode: promptMode,
+        },
+        env,
+        sessionId,
+        { modelName }
+      );
+      extended = true; // 判定済み。延長の有無に関わらず再判定しない
+      if (decision.extend) {
+        plannedTurns = baseTurns + extensionAmount(activePersonas.length);
+        if (decision.reason) {
+          console.info(`Dialogue extended (${sessionId}): ${decision.reason}`);
+        }
+        yield { type: "length_update", data: { totalTurns: plannedTurns } };
+      }
+    }
+
+    const currentPersona = activePersonas[speakerIndexForTurn(turn, plannedTurns, activePersonas.length)];
     const isFirstSpeaker = turn === 0;
 
     yield {
@@ -127,8 +164,9 @@ export async function* orchestrateDialogue(
       pastMemories,
       history: conversationHistory,
       turnIndex: turn,
-      totalTurns,
+      totalTurns: plannedTurns,
       isFirstSpeaker,
+      mode: promptMode,
     });
 
     // この発言の生成を始めた時刻。これ以降に作られた記憶は参照しようがない (時系列ガード)

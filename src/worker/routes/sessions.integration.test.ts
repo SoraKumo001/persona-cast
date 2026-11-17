@@ -52,6 +52,7 @@ interface FakeSession {
   hiddenAt: string | null;
   id: string;
   messageCount: number;
+  mode: string;
   normalizedUrl: string;
   ogJson: string | null;
   personaIds: string;
@@ -67,6 +68,7 @@ const session = (over: Partial<FakeSession> = {}): FakeSession => ({
   articleSummary: "既存の本文",
   summary: "既存の要約",
   genre: "プログラミング・開発",
+  mode: "article",
   ogJson: JSON.stringify({ title: "既存の記事" }),
   personaIds: '["ken","yuki","ren"]',
   createdAt: "2026-10-29T00:00:00.000Z",
@@ -123,6 +125,7 @@ function fakeDb(
                 articleSummary: row.articleSummary,
                 summary: row.summary,
                 genre: row.genre,
+                mode: row.mode,
                 ogJson: row.ogJson,
                 personaIds: row.personaIds,
                 createdAt: row.createdAt,
@@ -163,6 +166,7 @@ function fakeDb(
             articleSummary,
             summary,
             genre,
+            mode,
             ogJson,
             personaIds,
             createdAt,
@@ -175,6 +179,7 @@ function fakeDb(
             articleSummary,
             summary,
             genre,
+            mode: mode || "article",
             ogJson,
             personaIds,
             createdAt,
@@ -274,6 +279,40 @@ describe("POST /api/sessions", () => {
     expect(scrapeCalls).toBe(1);
     expect(inserts).toHaveLength(1);
     expect(sessions).toHaveLength(1);
+  });
+
+  test("Accept に ndjson を付けると、段階の進行を順に流して最後に結果を返す", async () => {
+    scrapeCalls = 0;
+    const { post, sessions } = setup();
+
+    const res = await post({ url: ARTICLE_URL }, { Accept: "application/x-ndjson, application/json" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+    const lines = (await res.text())
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    expect(lines.slice(0, 2)).toEqual([
+      { type: "progress", step: "fetching" },
+      { type: "progress", step: "analyzing" },
+    ]);
+    expect(lines).toHaveLength(3);
+    expect(lines[2]).toMatchObject({
+      type: "result",
+      status: 200,
+      body: { existing: false, articleTitle: "テスト記事" },
+    });
+    expect(sessions).toHaveLength(1);
+  });
+
+  test("進行状況を希望しても、既存の対談はすぐ通常の JSON で返す", async () => {
+    scrapeCalls = 0;
+    const { post } = setup([session()]);
+
+    const res = await post({ url: ARTICLE_URL }, { Accept: "application/x-ndjson" });
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.json()).toMatchObject({ existing: true, sessionId: "ses_existing_1" });
+    expect(scrapeCalls).toBe(0);
   });
 
   test("非表示 (hidden_at 設定済み) の対談は 409 で返し、作り直させない", async () => {

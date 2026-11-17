@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { BrainCircuit, CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
 import React from "react";
+import { parseResearchSources } from "../../worker/services/theme";
 import { useSessionStream } from "../hooks/use-session-stream";
 import { formatDateTime } from "../lib/api";
 import type { RelatedSession, SessionDetail } from "../lib/session-detail";
@@ -23,6 +24,21 @@ function ShareOnX({ url, title }: { url: string; title: string }) {
       </svg>
       Xでシェア
     </a>
+  );
+}
+
+function PreparingBanner({ mode }: { mode?: "article" | "debate" | "heated" }) {
+  const label =
+    mode === "heated"
+      ? "出演者が調査を踏まえて、激論の切り口を尖らせています…"
+      : mode === "debate"
+        ? "出演者が調査を踏まえて、論戦の切り口を考えています…"
+        : "出演者が記事を読んで、話すことを考えています…";
+  return (
+    <p className="flex items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-6 text-sm text-zinc-300">
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-indigo-300" />
+      {label}
+    </p>
   );
 }
 
@@ -65,7 +81,12 @@ export function SessionView({
   pageUrl: string | null;
   related: RelatedSession;
 }) {
-  const { session, participants, messages, pastMemories, speakerId, status, error } = useSessionStream({ id, detail });
+  const { session, participants, messages, pastMemories, speakerId, status, error, totalTurns } = useSessionStream({
+    id,
+    detail,
+  });
+  // 最初の発言が届くまでは、過去の対談の検索と各出演者の立場づくりをしている
+  const preparing = status === "streaming" && messages.length === 0;
   // 共有URLは、loader が返した値を優先し、無ければ (取得に失敗したときなど) 表示中のURLから作る
   const shareUrl =
     pageUrl ?? (typeof window === "undefined" ? null : `${window.location.origin}/s/${encodeURIComponent(id)}`);
@@ -122,7 +143,14 @@ export function SessionView({
       </div>
 
       <OgpCard
+        mode={session.mode}
         ogp={session.ogp}
+        sessionId={session.id}
+        sources={
+          session.mode === "debate" || session.mode === "heated"
+            ? parseResearchSources(session.articleSummary)
+            : undefined
+        }
         summary={session.summary ?? session.articleSummary.slice(0, 200)}
         title={session.articleTitle}
         url={session.sourceUrl}
@@ -147,7 +175,8 @@ export function SessionView({
           <p aria-live="polite" className="flex items-center gap-1.5">
             {status === "streaming" && (
               <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> 対談中…
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {preparing ? "準備中…" : `対談中… ${messages.length}${totalTurns ? ` / ${totalTurns}` : ""}`}
               </>
             )}
             {status === "done" && (
@@ -181,6 +210,8 @@ export function SessionView({
           </ul>
         </details>
       )}
+
+      {preparing ? <PreparingBanner mode={session.mode} /> : null}
 
       <ol aria-label="対談ログ" className="space-y-5">
         {messages.map((m) => (

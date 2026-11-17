@@ -8,6 +8,7 @@ interface Row {
   article_summary: string;
   article_title: string;
   generating_at: string | null;
+  mode: string | null;
   og_json: string | null;
   source_url: string;
 }
@@ -18,6 +19,7 @@ const stored: Row = {
   article_summary: "保存してある本文",
   og_json: JSON.stringify({ description: "古いOGP" }),
   generating_at: null,
+  mode: "article",
 };
 
 const analysis: Analysis = {

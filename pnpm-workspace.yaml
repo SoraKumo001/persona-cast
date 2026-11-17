@@ -1,0 +1,12 @@
+allowBuilds:
+  workerd: true
+minimumReleaseAgeExclude:
+  - '@cloudflare/build-output-utils@1.0.0-rc.0'
+  - '@cloudflare/config@1.0.0-rc.0'
+  - '@cloudflare/runtime-types@0.1.29'
+  - '@cloudflare/workers-types@5.20261117.1'
+  - cf@1.0.0-rc.0
+  - hono@4.13.19
+  - lucide-react@1.74.0
+  - miniflare@5.20261116.0-beta
+  - '@cloudflare/vite-plugin@2.0.0-rc.0'

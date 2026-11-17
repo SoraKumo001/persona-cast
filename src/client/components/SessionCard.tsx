@@ -1,17 +1,19 @@
 import { Link } from "@tanstack/react-router";
 import React from "react";
-import { formatDate, hostOf, type SessionListItem } from "../lib/api";
+import { formatDate, hostOf, isThemeBasedSourceUrl, type SessionListItem } from "../lib/api";
 import { PersonaAvatar } from "./PersonaAvatar";
 
 /** 対談の一覧に並べるカード。トップページとペルソナ別ページで使う */
 export function SessionCard({ session: s }: { session: SessionListItem }) {
-  // サムネイルは、サイトのOGP画像 → 無い/読み込めなければ対談ごとの生成画像 → それも不可ならジャンル表示
-  const sources = [s.ogp?.image, `/api/sessions/${s.id}/ogp.png`].filter(
-    (candidate): candidate is string => !!candidate
-  );
+  const themeBased =
+    s.mode === "debate" || s.mode === "heated" || isThemeBasedSourceUrl(s.sourceUrl);
+  // 記事対談: サイトのOGP → 生成画像。論戦/激論: 常に対談ごとの生成OGPを使う
+  const sources = themeBased
+    ? [`/api/sessions/${s.id}/ogp.png`]
+    : [s.ogp?.image, `/api/sessions/${s.id}/ogp.png`].filter((candidate): candidate is string => !!candidate);
   const [stage, setStage] = React.useState(0);
   const src = sources[stage];
-  const isSiteImage = !!s.ogp?.image && stage === 0;
+  const isSiteImage = !themeBased && !!s.ogp?.image && stage === 0;
 
   return (
     <Link
@@ -41,7 +43,15 @@ export function SessionCard({ session: s }: { session: SessionListItem }) {
       </div>
       <div className="flex flex-1 flex-col gap-2 p-4">
         <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-indigo-200">{s.genre}</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full bg-indigo-500/15 px-2.5 py-0.5 text-indigo-200">{s.genre}</span>
+            {s.mode === "debate" ? (
+              <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-amber-200">論戦</span>
+            ) : null}
+            {s.mode === "heated" ? (
+              <span className="rounded-full bg-rose-500/15 px-2.5 py-0.5 text-rose-200">激論</span>
+            ) : null}
+          </div>
           <span className="text-zinc-500">{formatDate(s.createdAt)}</span>
         </div>
         <h2 className="line-clamp-2 text-sm leading-snug font-semibold text-zinc-50">{s.articleTitle}</h2>

@@ -50,6 +50,7 @@ export function useSessionStream({ id, detail }: { id: string; detail: SessionDe
   const [speakerId, setSpeakerId] = React.useState<string | null>(null);
   const [status, setStatus] = React.useState<Status>(initialStatus(Boolean(session), saved.length));
   const [error, setError] = React.useState<string | null>(null);
+  const [totalTurns, setTotalTurns] = React.useState<number | null>(null);
 
   // 未生成の対談だけ、SSEで生成を始める
   // biome-ignore lint/correctness/useExhaustiveDependencies: 生成は id が変わったときだけ始める (session と saved は id から決まる)
@@ -65,8 +66,15 @@ export function useSessionStream({ id, detail }: { id: string; detail: SessionDe
     source.addEventListener("session_start", (e) => {
       const evt = parse(e);
       setPastMemories(evt.pastMemories ?? []);
+      setTotalTurns(typeof evt.totalTurns === "number" ? evt.totalTurns : null);
       if (Array.isArray(evt.personas)) {
         setParticipants(evt.personas);
+      }
+    });
+    source.addEventListener("length_update", (e) => {
+      const evt = parse(e);
+      if (typeof evt.totalTurns === "number") {
+        setTotalTurns(evt.totalTurns);
       }
     });
     source.addEventListener("turn_start", (e) => {
@@ -112,5 +120,5 @@ export function useSessionStream({ id, detail }: { id: string; detail: SessionDe
     return () => source?.close();
   }, [id]);
 
-  return { session, participants, messages, pastMemories, speakerId, status, error };
+  return { session, participants, messages, pastMemories, speakerId, status, error, totalTurns };
 }

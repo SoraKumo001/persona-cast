@@ -108,6 +108,21 @@ describe("GET /api/sessions/:id/stream (生成中ロック)", () => {
     expect(state.clears).toBe(1);
   });
 
+  test("length_update を SSE で中継する", async () => {
+    script = () =>
+      fromEvents([
+        { type: "session_start", data: { sessionId: "ses_stream_1", totalTurns: 9 } },
+        { type: "length_update", data: { totalTurns: 12 } },
+        { type: "session_end", data: { message: "対談が完了しました" } },
+      ]);
+    const { stream } = setup();
+    const res = await stream();
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("event: length_update");
+    expect(body).toContain('"totalTurns":12');
+  });
+
   test("生成が成功しても印を外し、次のリクエストが 409 にならない", async () => {
     script = () => fromEvents([{ type: "session_end", data: { message: "対談が完了しました" } }]);
     const { state, stream } = setup();

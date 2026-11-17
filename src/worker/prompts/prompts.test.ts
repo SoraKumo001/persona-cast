@@ -4,8 +4,10 @@ import { join } from "node:path";
 import {
   buildAnalyzeMessages,
   buildConsolidateMessages,
+  buildExtendMessages,
   buildPersonaGenerateMessages,
   buildStanceMessages,
+  buildThemeQueriesMessages,
   buildTurnMessages,
 } from "./index";
 import { renderPrompt } from "./render";
@@ -51,6 +53,22 @@ describe("全テンプレートの組み立て", () => {
     ...buildTurnMessages(turn),
     ...buildTurnMessages({ ...turn, turnIndex: 5 }),
     ...buildTurnMessages({ ...turn, isFirstSpeaker: true, history: [] }),
+    ...buildTurnMessages({ ...turn, mode: "debate" }),
+    ...buildTurnMessages({ ...turn, mode: "debate", isFirstSpeaker: true, history: [] }),
+    ...buildStanceMessages({
+      currentPersona: persona,
+      allPersonas: [persona],
+      articleTitle: "記事",
+      articleSummary: "概要",
+      mode: "debate",
+    }),
+    ...buildThemeQueriesMessages("ReactのRSC"),
+    ...buildExtendMessages({
+      articleTitle: "記事",
+      history: [{ personaName: "ケン", text: "発言" }],
+      keyPoints: ["論点A"],
+      mode: "heated",
+    }),
     ...buildConsolidateMessages("記事", [{ personaName: "ケン", text: "発言" }]),
     ...buildAnalyzeMessages({
       title: "t",
@@ -164,6 +182,94 @@ describe("全テンプレートの組み立て", () => {
     const [system] = buildTurnMessages(turn);
     expect(system.content).toContain("記事からのキー引用");
     expect(system.content).toContain("なし");
+  });
+
+  test("debate モードは論戦用 system / opening を使う", () => {
+    const [articleSystem] = buildTurnMessages(turn);
+    const [debateSystem] = buildTurnMessages({ ...turn, mode: "debate" });
+    expect(articleSystem.content).toContain("Web記事の内容について語り合います");
+    expect(debateSystem.content).toContain("是非・現状・トレードオフについて論戦します");
+    expect(debateSystem.content).not.toContain("Web記事の内容について語り合います");
+
+    const opening = buildTurnMessages({ ...turn, mode: "debate", isFirstSpeaker: true, history: [] })[1].content;
+    expect(opening).toContain("論戦が始まる");
+
+    const stance = buildStanceMessages({
+      currentPersona: persona,
+      allPersonas: [persona],
+      articleTitle: "記事",
+      articleSummary: "概要",
+      mode: "debate",
+    })[0].content;
+    expect(stance).toContain("論戦番組");
+  });
+
+  test("heated モードは激論用 system / opening を使う", () => {
+    const [heatedSystem] = buildTurnMessages({ ...turn, mode: "heated" });
+    expect(heatedSystem.content).toContain("激論します");
+    expect(heatedSystem.content).toContain("合意形成や落としどころ探しは禁止");
+    expect(heatedSystem.content).not.toContain("Web記事の内容について語り合います");
+
+    const opening = buildTurnMessages({ ...turn, mode: "heated", isFirstSpeaker: true, history: [] })[1].content;
+    expect(opening).toContain("火花が散る");
+
+    const mid = buildTurnMessages({
+      ...turn,
+      mode: "heated",
+      turnIndex: 3,
+      totalTurns: 9,
+      isFirstSpeaker: false,
+    })[1].content;
+    expect(mid).toContain("前提を潰す");
+
+    const stance = buildStanceMessages({
+      currentPersona: persona,
+      allPersonas: [persona],
+      articleTitle: "記事",
+      articleSummary: "概要",
+      mode: "heated",
+    })[0].content;
+    expect(stance).toContain("激論番組");
+  });
+
+  test("テーマ検索クエリのプロンプトを組み立てられる", () => {
+    const [system, user] = buildThemeQueriesMessages("ReactのRSC");
+    expect(system.content).toContain('"overview"');
+    expect(system.content).toContain('"pro"');
+    expect(system.content).toContain('"con"');
+    expect(user.content).toContain("ReactのRSC");
+  });
+
+  test("延長判定プロンプトはモード別の目安を差し込む", () => {
+    const [heatedSystem, heatedUser] = buildExtendMessages({
+      articleTitle: "RSC",
+      history: [{ personaName: "ケン", text: "まだ浅い" }],
+      keyPoints: ["必要性", "コスト"],
+      mode: "heated",
+    });
+    expect(heatedSystem.content).toContain("未解決の対立");
+    expect(heatedUser.content).toContain("激論");
+    expect(heatedUser.content).toContain("まだ浅い");
+
+    const [articleSystem] = buildExtendMessages({
+      articleTitle: "記事",
+      history: [],
+      mode: "article",
+    });
+    expect(articleSystem.content).toContain("論点が明らかに未消化");
+  });
+
+  test("延長後の totalTurns では山場・締めが後ろへずれる", () => {
+    const extended = { ...turn, totalTurns: 12, history: [{ personaName: "ケン", text: "続き" }] };
+    const climaxOld = buildTurnMessages({ ...extended, turnIndex: 7 })[1].content;
+    expect(climaxOld).not.toContain("番組の山場");
+    expect(climaxOld).toContain("番組の見せ場");
+
+    const climaxNew = buildTurnMessages({ ...extended, turnIndex: 10 })[1].content;
+    expect(climaxNew).toContain("番組の山場");
+
+    const final = buildTurnMessages({ ...extended, turnIndex: 11 })[1].content;
+    expect(final).toContain("最終ターン");
   });
 
   test("System のルールに具体性の要求と既出キーワードの反復禁止が入っている", () => {

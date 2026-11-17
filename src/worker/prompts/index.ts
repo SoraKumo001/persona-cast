@@ -13,16 +13,39 @@ import dialogueInstructionFinal from "./dialogue-instruction-final.md?raw";
 import dialogueInstructionReply from "./dialogue-instruction-reply.md?raw";
 import dialogueMemoryItem from "./dialogue-memory-item.md?raw";
 import dialogueOpening from "./dialogue-opening.md?raw";
+import dialogueOpeningDebate from "./dialogue-opening-debate.md?raw";
+import dialogueOpeningHeated from "./dialogue-opening-heated.md?raw";
 import dialogueSpeaker from "./dialogue-speaker.md?raw";
 import dialogueSystem from "./dialogue-system.md?raw";
+import dialogueSystemDebate from "./dialogue-system-debate.md?raw";
+import dialogueSystemHeated from "./dialogue-system-heated.md?raw";
 import dialogueTurn from "./dialogue-turn.md?raw";
+import extendSystem from "./extend-system.md?raw";
+import extendUser from "./extend-user.md?raw";
 import personaGenerateModify from "./persona-generate-modify.md?raw";
 import personaGenerateNew from "./persona-generate-new.md?raw";
 import personaGenerateOthers from "./persona-generate-others.md?raw";
 import personaGenerateSystem from "./persona-generate-system.md?raw";
 import { renderPrompt } from "./render";
 import stanceSystem from "./stance-system.md?raw";
+import stanceSystemDebate from "./stance-system-debate.md?raw";
+import stanceSystemHeated from "./stance-system-heated.md?raw";
 import stanceUser from "./stance-user.md?raw";
+import themeQueriesSystem from "./theme-queries-system.md?raw";
+import themeQueriesUser from "./theme-queries-user.md?raw";
+
+/** 対談プロンプトのトーン。debate / heated はテーマ調査ベース */
+export type DialoguePromptMode = "article" | "debate" | "heated";
+
+function dialogueTemplates(mode: DialoguePromptMode | undefined) {
+  if (mode === "heated") {
+    return { systemTemplate: dialogueSystemHeated, openingTemplate: dialogueOpeningHeated };
+  }
+  if (mode === "debate") {
+    return { systemTemplate: dialogueSystemDebate, openingTemplate: dialogueOpeningDebate };
+  }
+  return { systemTemplate: dialogueSystem, openingTemplate: dialogueOpening };
+}
 
 // 対談履歴は直近のこの件数だけをプロンプトに載せる (古い発言で文脈とトークンを圧迫しないため)
 export const DIALOGUE_HISTORY_LIMIT = 6;
@@ -75,15 +98,47 @@ const MID_TURN_MOVES: readonly { instruction: string; lengthHint: string }[] = [
   },
 ];
 
-function pickMidTurnMove(turnIndex: number): { instruction: string; lengthHint: string } {
-  return MID_TURN_MOVES[(turnIndex - MID_TURN_START_INDEX) % MID_TURN_MOVES.length];
+/** 激論モードの中盤の手。妥協・本音の軟化は避け、前提衝突を強める */
+const HEATED_MID_TURN_MOVES: readonly { instruction: string; lengthHint: string }[] = [
+  {
+    instruction:
+      "【前提を潰す】相手が一番大事にしている前提を一文で言い当て、それが成り立たない理由を具体で突きつけてください。部分修正や「ただし」は禁止です。",
+    lengthHint: "2〜3文(60〜120文字)",
+  },
+  {
+    instruction:
+      "【相容れない対案】相手の案と両立しない対案を出し、「両方やる」「条件付き」は禁止です。採否を二者択一にしてください。",
+    lengthHint: "2〜4文(70〜140文字)",
+  },
+  {
+    instruction:
+      "【損得を抉る】相手の案で誰が得して誰が損するかをはっきり言い、その損を受け入れるなら相手の案を通せ、と突きつけてください。",
+    lengthHint: "3〜4文(90〜160文字)",
+  },
+  {
+    instruction:
+      "【感情で押す】呆れ・焦り・苛立ちを声に出しつつ、相手の結論を一文で却下してください。冷静な分析だけの発言は禁止です。",
+    lengthHint: "2〜3文(50〜110文字)",
+  },
+];
+
+function pickMidTurnMove(
+  turnIndex: number,
+  mode: DialoguePromptMode | undefined
+): { instruction: string; lengthHint: string } {
+  const moves = mode === "heated" ? HEATED_MID_TURN_MOVES : MID_TURN_MOVES;
+  return moves[(turnIndex - MID_TURN_START_INDEX) % moves.length];
 }
 
 /** 中盤だけに足す指示。ターンごとの「手」で話を動かし、既出キーワードの蒸し返しと相槌への崩落を防ぐ */
-function buildMidTurnInstruction(turnIndex: number): string {
+function buildMidTurnInstruction(turnIndex: number, mode: DialoguePromptMode | undefined): string {
+  const headline =
+    mode === "heated"
+      ? "今回は激論の中盤、火花の見せ場です。直前の発言を受けて、相手の土台を揺らしてください。"
+      : "今回は対談の中盤、番組の見せ場です。直前の発言を受けて、話を別の景色へ動かしてください。";
   return [
-    "今回は対談の中盤、番組の見せ場です。直前の発言を受けて、話を別の景色へ動かしてください。",
-    `今回の手: ${pickMidTurnMove(turnIndex).instruction}`,
+    headline,
+    `今回の手: ${pickMidTurnMove(turnIndex, mode).instruction}`,
     "ここまでの会話で既に出た数字やカギ括弧の引用は繰り返さないでください。担当論点が指定されている場合は、その範囲でこの手を使ってください。",
     "「賛成です」「なるほど」のような短い相槌だけの発言や、自分の前の発言の焼き直しは禁止です。",
   ].join("\n");
@@ -127,9 +182,15 @@ function isClimaxTurn(turnIndex: number, totalTurns: number): boolean {
  *   ターン番号基準のままだと、話者ごとに当たる目安の位置が固定され、
  *   特定の話者だけ毎回短い/長いという偏りが構造化されるため。
  */
-function pickLengthHint(turnIndex: number, totalTurns: number, speakerIndex: number, speakerCount: number): string {
+function pickLengthHint(
+  turnIndex: number,
+  totalTurns: number,
+  speakerIndex: number,
+  speakerCount: number,
+  mode: DialoguePromptMode | undefined
+): string {
   if (isMidTurn(turnIndex, totalTurns)) {
-    return pickMidTurnMove(turnIndex).lengthHint;
+    return pickMidTurnMove(turnIndex, mode).lengthHint;
   }
   if (isClimaxTurn(turnIndex, totalTurns)) {
     return CLIMAX_LENGTH_HINT;
@@ -257,8 +318,11 @@ export function buildTurnMessages(params: {
   isFirstSpeaker: boolean;
   /** 履歴に載せる直近の発言数 (既定: DIALOGUE_HISTORY_LIMIT) */
   historyLimit?: number;
+  /** 既定は article。debate / heated ならそれぞれの system / opening を使う */
+  mode?: DialoguePromptMode;
 }): ChatMessage[] {
   const { currentPersona, allPersonas, articleTitle, articleSummary, pastMemories, turnIndex, totalTurns } = params;
+  const { systemTemplate, openingTemplate } = dialogueTemplates(params.mode);
 
   const recentHistory = params.history.slice(-(params.historyLimit ?? DIALOGUE_HISTORY_LIMIT));
 
@@ -314,7 +378,7 @@ export function buildTurnMessages(params: {
 
   const system: ChatMessage = {
     role: "system",
-    content: renderPrompt(dialogueSystem, {
+    content: renderPrompt(systemTemplate, {
       cast,
       articleTitle,
       articleSummary,
@@ -325,7 +389,7 @@ export function buildTurnMessages(params: {
   };
 
   if (params.isFirstSpeaker) {
-    return [system, { role: "user", content: renderPrompt(dialogueOpening, { speaker, articleTitle }) }];
+    return [system, { role: "user", content: renderPrompt(openingTemplate, { speaker, articleTitle }) }];
   }
 
   const isLastTurn = turnIndex === totalTurns - 1;
@@ -335,9 +399,9 @@ export function buildTurnMessages(params: {
   const speakerIndex = foundSpeakerIndex >= 0 ? foundSpeakerIndex : turnIndex % speakerCount;
   const replyInstruction = [
     renderPrompt(dialogueInstructionReply, {
-      lengthHint: pickLengthHint(turnIndex, totalTurns, speakerIndex, speakerCount),
+      lengthHint: pickLengthHint(turnIndex, totalTurns, speakerIndex, speakerCount, params.mode),
     }),
-    midTurn ? buildMidTurnInstruction(turnIndex) : null,
+    midTurn ? buildMidTurnInstruction(turnIndex, params.mode) : null,
     isFirstRound && !midTurn ? FIRST_ROUND_INSTRUCTION : null,
     isClimaxTurn(turnIndex, totalTurns) ? CLIMAX_INSTRUCTION : null,
   ]
@@ -376,8 +440,12 @@ export function buildStanceMessages(params: {
   keyPoints?: readonly string[] | string;
   /** このペルソナの担当論点 (任意)。指定時だけペルソナ欄の末尾に1行注入する */
   assignedKeyPoints?: readonly string[];
+  /** 既定は article。debate / heated ならそれぞれの system を使う */
+  mode?: DialoguePromptMode;
 }): ChatMessage[] {
   const { currentPersona } = params;
+  const stanceTemplate =
+    params.mode === "heated" ? stanceSystemHeated : params.mode === "debate" ? stanceSystemDebate : stanceSystem;
 
   const others =
     params.allPersonas
@@ -388,7 +456,7 @@ export function buildStanceMessages(params: {
   const assignedKeyPoints = params.assignedKeyPoints ?? [];
 
   return [
-    { role: "system", content: renderPrompt(stanceSystem) },
+    { role: "system", content: renderPrompt(stanceTemplate) },
     {
       role: "user",
       content: renderPrompt(stanceUser, {
@@ -402,6 +470,55 @@ export function buildStanceMessages(params: {
         articleSummary: params.articleSummary,
         articleKeyQuotes: params.articleKeyQuotes?.trim() ? params.articleKeyQuotes.trim() : "なし",
         keyPoints: formatKeyPoints(params.keyPoints),
+      }),
+    },
+  ];
+}
+
+/** テーマ論戦: 検索クエリを LLM に作らせる */
+export function buildThemeQueriesMessages(theme: string): ChatMessage[] {
+  return [
+    { role: "system", content: renderPrompt(themeQueriesSystem) },
+    { role: "user", content: renderPrompt(themeQueriesUser, { theme }) },
+  ];
+}
+
+const EXTEND_MODE_HINTS: Record<DialoguePromptMode, string> = {
+  article:
+    "記事対談: 論点が明らかに未消化のときだけ延長する。合意や軽い相槌が続いていても、主要論点に触れていれば延長しない。",
+  debate:
+    "論戦: 主要論点が未接触、または是非の衝突が浅すぎて具体が足りないとき延長する。すでに着地しすぎて新しい具体が出尽くしていれば延長しない。",
+  heated:
+    "激論: 未解決の対立が残っていれば延長寄り。合意や中間案で丸まっている場合も延長する。火花が十分散って論点が尽きたら延長しない。",
+};
+
+const EXTEND_MODE_LABELS: Record<DialoguePromptMode, string> = {
+  article: "記事対談",
+  debate: "論戦",
+  heated: "激論",
+};
+
+/** 山場直前の延長判定。あと1巡伸ばすかを JSON で答えさせる */
+export function buildExtendMessages(params: {
+  articleTitle: string;
+  history: { personaName: string; text: string }[];
+  keyPoints?: readonly string[] | string;
+  mode?: DialoguePromptMode;
+}): ChatMessage[] {
+  const mode = params.mode ?? "article";
+  const historyText =
+    params.history.length > 0
+      ? params.history.map((h) => `${h.personaName}: 「${h.text}」`).join("\n\n")
+      : "なし";
+  return [
+    { role: "system", content: renderPrompt(extendSystem, { modeHint: EXTEND_MODE_HINTS[mode] }) },
+    {
+      role: "user",
+      content: renderPrompt(extendUser, {
+        articleTitle: params.articleTitle,
+        modeLabel: EXTEND_MODE_LABELS[mode],
+        keyPoints: formatKeyPoints(params.keyPoints),
+        history: historyText,
       }),
     },
   ];

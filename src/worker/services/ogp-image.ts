@@ -29,6 +29,12 @@ export interface OgpImageData {
 }
 
 function hostOf(url: string): string {
+  if (url.startsWith("heated://")) {
+    return "激論";
+  }
+  if (url.startsWith("theme://")) {
+    return "テーマ論戦";
+  }
   try {
     return new URL(url).hostname.replace(/^www\./u, "");
   } catch {

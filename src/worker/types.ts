@@ -62,11 +62,14 @@ export interface Persona {
   updatedAt?: string | null;
 }
 
+export type SessionMode = "article" | "debate" | "heated";
+
 export interface DialogueSession {
   articleSummary: string;
   articleTitle: string;
   createdAt: string;
   id: string;
+  mode?: SessionMode;
   personaIds: string[]; // JSON文字列で保存
   sourceUrl: string;
 }

@@ -77,7 +77,7 @@ EMBEDDING_MODEL="@cf/baai/bge-m3"
 ```bash
 bun run d1:migrate:local
 ```
-`migrations/` の `0001`〜`0007` を順に適用します。**起動時にテーブルや列は作られません** (`ensureDatabaseTables` は空の `personas` に初期ペルソナを入れるだけ)。スキーマ変更後は必ずこのコマンドを流してください。
+`migrations/` の `0001`〜`0008` を順に適用します。**起動時にテーブルや列は作られません** (`ensureDatabaseTables` は空の `personas` に初期ペルソナを入れるだけ)。スキーマ変更後は必ずこのコマンドを流してください。
 
 ### 4. 開発サーバーの起動 (`cf dev`)
 ```bash

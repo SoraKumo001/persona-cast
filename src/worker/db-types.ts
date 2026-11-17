@@ -15,12 +15,16 @@ export interface PersonaRow {
   updatedAt: string | null;
 }
 
+/** 対談の入力種別 */
+export type SessionMode = "article" | "debate" | "heated";
+
 /** sessions を列名そのまま (別名なし) で読むときの行 */
 export interface DialogueSessionRow {
   article_summary: string;
   article_title: string;
   created_at: string;
   id: string;
+  mode: SessionMode;
   persona_ids: string;
   source_url: string;
 }
@@ -49,6 +53,7 @@ export interface SessionRow {
   createdAt: string;
   genre: string | null;
   id: string;
+  mode: SessionMode;
   normalizedUrl: string | null;
   ogJson: string | null;
   personaIds: string;

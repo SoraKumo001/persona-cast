@@ -661,6 +661,24 @@ function analysisScore(parsed: ParsedAnalysis, truncated: boolean): number {
  * 記事を分析し、短い要約・ジャンル・対談に参加するペルソナを一度のLLM呼び出しで決める。
  * 失敗してもセッション作成は止めず、ヒューリスティックにフォールバックする。
  */
+function extractiveFallback(
+  article: { title: string; content: string; ogp: OgpInfo; normalizedUrl: string },
+  candidates: PersonaCandidate[]
+): Analysis {
+  const adultByKeywords = looksAdult(
+    `${article.title}\n${article.ogp.description ?? ""}\n${article.content.slice(0, 3000)}`
+  );
+  const guessedGenre = guessGenre(`${article.title}\n${article.content.slice(0, 1500)}`);
+  return {
+    summary: extractiveSummary(article.content, article.ogp),
+    keyPoints: extractiveKeyPoints(article.content),
+    keyQuotes: extractiveKeyQuotes(article.content),
+    genre: guessedGenre,
+    personaIds: fallbackPersonas(candidates, article.normalizedUrl, MIN_PERSONAS, guessedGenre),
+    adult: adultByKeywords,
+  };
+}
+
 export async function analyzeArticle(
   env: Env,
   sessionId: string,
@@ -670,18 +688,8 @@ export async function analyzeArticle(
 ): Promise<Analysis> {
   // A/B比較用: SUMMARY_TOP3=off で導入前の挙動 (制約文なし・引用検証/重複除去なし) に戻す
   const top3 = env.SUMMARY_TOP3 !== "off";
-  const adultByKeywords = looksAdult(
-    `${article.title}\n${article.ogp.description ?? ""}\n${article.content.slice(0, 3000)}`
-  );
-  const guessedGenre = guessGenre(`${article.title}\n${article.content.slice(0, 1500)}`);
-  const fallback: Analysis = {
-    summary: extractiveSummary(article.content, article.ogp),
-    keyPoints: extractiveKeyPoints(article.content),
-    keyQuotes: extractiveKeyQuotes(article.content),
-    genre: guessedGenre,
-    personaIds: fallbackPersonas(candidates, article.normalizedUrl, MIN_PERSONAS, guessedGenre),
-    adult: adultByKeywords,
-  };
+  const fallback = extractiveFallback(article, candidates);
+  const adultByKeywords = fallback.adult;
 
   const apiKey = env.OPENCODE_API_KEY;
   // 未設定時は generateChatCompletion がデモ用の対談文を返してしまうため呼ばない

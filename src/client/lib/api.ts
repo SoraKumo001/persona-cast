@@ -1,3 +1,6 @@
+import type { CreateSessionStep } from "../../worker/routes/sessions-list";
+
+export type { CreateSessionStep } from "../../worker/routes/sessions-list";
 export type { Persona } from "../../worker/types";
 
 export interface Ogp {
@@ -9,12 +12,16 @@ export interface Ogp {
   type: string | null;
 }
 
+export type SessionMode = "article" | "debate" | "heated";
+
 export interface SessionSummary {
   articleSummary: string;
   articleTitle: string;
   createdAt: string;
   genre: string | null;
   id: string;
+  /** 無い古い応答は article 扱い */
+  mode?: SessionMode;
   normalizedUrl: string | null;
   ogp: Ogp | null;
   personaIds: string[];
@@ -76,13 +83,83 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) {
-    throw new ApiError(data.error ?? `リクエストに失敗しました (HTTP ${res.status})`, res.status);
+function unwrap<T>(data: { error?: string }, status: number): T {
+  if (status < 200 || status >= 300) {
+    throw new ApiError(data.error ?? `リクエストに失敗しました (HTTP ${status})`, status);
   }
   return data as T;
+}
+
+async function readJson<T>(res: Response): Promise<T> {
+  return unwrap<T>((await res.json().catch(() => ({}))) as { error?: string }, res.status);
+}
+
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  return readJson<T>(await fetch(path, init));
+}
+
+const NDJSON = "application/x-ndjson";
+
+type ProgressLine =
+  | { step: CreateSessionStep; type: "progress" }
+  | { body: { error?: string }; status: number; type: "result" };
+
+export type CreateSessionInput =
+  | { url: string; theme?: never; heated?: never }
+  | { theme: string; url?: never; heated?: boolean };
+
+/**
+ * 対談の作成。サーバーが進めるたびに onProgress を呼び、最後の結果を返す。
+ * 入力エラーや既存の対談など、すぐ決まる応答は通常の JSON で返ってくるので両方を扱う。
+ */
+export async function createSessionWithProgress<T>(
+  input: CreateSessionInput | string,
+  onProgress: (step: CreateSessionStep) => void
+): Promise<T> {
+  const body: CreateSessionInput = typeof input === "string" ? { url: input } : input;
+  const res = await fetch("/api/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: `${NDJSON}, application/json` },
+    body: JSON.stringify(body),
+  });
+  if (!(res.headers.get("content-type")?.includes(NDJSON) && res.body)) {
+    return readJson<T>(res);
+  }
+
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += value ?? "";
+    const lines = buffer.split("\n");
+    // 最後の要素は行の途中かもしれないので次回に回す
+    buffer = done ? "" : (lines.pop() ?? "");
+    for (const line of lines.filter((l) => l.trim())) {
+      const parsed = JSON.parse(line) as ProgressLine;
+      if (parsed.type === "result") {
+        return unwrap<T>(parsed.body, parsed.status);
+      }
+      onProgress(parsed.step);
+    }
+    if (done) {
+      throw new ApiError("接続が切れました。もう一度お試しください。", 502);
+    }
+  }
+}
+
+/** theme:// の合成URLかどうか (論戦セッション) */
+export function isThemeSourceUrl(url: string): boolean {
+  return url.startsWith("theme://");
+}
+
+/** heated:// の合成URLかどうか (激論セッション) */
+export function isHeatedSourceUrl(url: string): boolean {
+  return url.startsWith("heated://");
+}
+
+/** テーマ調査ベース (論戦・激論) かどうか */
+export function isThemeBasedSourceUrl(url: string): boolean {
+  return isThemeSourceUrl(url) || isHeatedSourceUrl(url);
 }
 
 export function postJson<T>(path: string, body: unknown, method = "POST"): Promise<T> {
@@ -94,6 +171,12 @@ export function postJson<T>(path: string, body: unknown, method = "POST"): Promi
 }
 
 export function hostOf(url: string): string {
+  if (isHeatedSourceUrl(url)) {
+    return "激論";
+  }
+  if (isThemeSourceUrl(url)) {
+    return "テーマ論戦";
+  }
   try {
     return new URL(url).hostname.replace(/^www\./u, "");
   } catch {

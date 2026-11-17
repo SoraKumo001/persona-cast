@@ -1,5 +1,5 @@
 import { errorMessage } from "../errors";
-import { buildStanceMessages } from "../prompts";
+import { buildStanceMessages, type DialoguePromptMode } from "../prompts";
 import type { Env, Persona } from "../types";
 import { extractJsonObject } from "./json-object";
 import { type ChatMessage, generateChatCompletion } from "./llm";
@@ -21,6 +21,8 @@ export interface GenerateStancesParams {
   /** ペルソナID → 担当論点。指定時だけ各ペルソナのプロンプト末尾に1行入る */
   keyPointAssignments?: ReadonlyMap<string, readonly string[]>;
   keyPoints?: readonly string[] | string;
+  /** 既定は article。debate なら論戦用の立場プロンプト */
+  mode?: DialoguePromptMode;
   personas: Persona[];
 }
 
@@ -113,6 +115,7 @@ export async function generateStances(
         articleKeyQuotes: params.articleKeyQuotes,
         keyPoints: params.keyPoints,
         assignedKeyPoints: params.keyPointAssignments?.get(persona.id),
+        mode: params.mode,
       });
       // 読めない応答 (JSON 崩れ・途中切れ) と通信失敗は、1回だけやり直す
       for (let attempt = 1; attempt <= STANCE_ATTEMPTS; attempt++) {
