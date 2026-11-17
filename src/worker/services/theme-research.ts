@@ -129,11 +129,15 @@ export async function collectSearchUrlsByStance(
 
 /**
  * 各スタンスから最低1件ずつ取り、残りを pro → con → overview で埋める。
- * 重複 URL はスキップ。あるスタンスが空でも他で埋める。
+ * 重複 URL・exclude 済みはスキップ。あるスタンスが空でも他で埋める。
  */
-export function pickBalancedUrls(buckets: StanceUrlBuckets, max = MAX_SCRAPE): PickedUrl[] {
+export function pickBalancedUrls(
+  buckets: StanceUrlBuckets,
+  max = MAX_SCRAPE,
+  exclude: ReadonlySet<string> = new Set()
+): PickedUrl[] {
   const picked: PickedUrl[] = [];
-  const seen = new Set<string>();
+  const seen = new Set<string>(exclude);
   const cursors: Record<ResearchStance, number> = { overview: 0, pro: 0, con: 0 };
 
   const takeNext = (stance: ResearchStance): boolean => {
@@ -251,10 +255,27 @@ export async function researchTheme(
   seed: string
 ): Promise<ThemeResearchResult> {
   const title = displayTheme(theme);
-  const queries = await buildSearchQueries(title, env, sessionId);
-  const buckets = await collectSearchUrlsByStance(queries, env.EXA_API_KEY);
-  const picked = pickBalancedUrls(buckets, MAX_SCRAPE);
-  const pages = await scrapeResearchPages(picked);
+  const apiKey = env.EXA_API_KEY?.trim() ?? "";
+  // キーが無ければ検索クエリ LLM も叩かず、すぐフォールバックへ進む
+  let pages: (ScrapedArticle & { stance: ResearchStance })[] = [];
+  if (apiKey) {
+    const queries = await buildSearchQueries(title, env, sessionId);
+    const buckets = await collectSearchUrlsByStance(queries, apiKey);
+    // スクレイプ失敗分は余った検索結果から補充する (最大2バッチ)
+    const attempted = new Set<string>();
+    for (let batch = 0; batch < 2 && pages.length < MAX_SCRAPE; batch++) {
+      const picked = pickBalancedUrls(buckets, MAX_SCRAPE - pages.length, attempted);
+      if (picked.length === 0) {
+        break;
+      }
+      for (const p of picked) {
+        attempted.add(p.url);
+      }
+      pages = pages.concat(await scrapeResearchPages(picked));
+    }
+  } else {
+    console.warn("theme-research: EXA_API_KEY 未設定のため検索をスキップします");
+  }
   const sources: ResearchSource[] = pages.map((p) => ({ title: p.title, url: p.url, stance: p.stance }));
   const researched = pages.length > 0;
   const ogp = pages[0]?.ogp ?? EMPTY_OGP;

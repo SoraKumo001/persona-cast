@@ -236,6 +236,8 @@ export function parseArticleSummary(articleSummary: string): {
   const summary = articleSummary
     .replace(/【キー引用】[\s\S]*?(?=【[^】]+】|$)/u, "")
     .replace(/【論点】[\s\S]*?(?=【[^】]+】|$)/u, "")
+    // 参考ページは UI 用。対談プロンプトに毎回載せない
+    .replace(/【参考ページ】[\s\S]*?(?=【[^】]+】|$)/u, "")
     .replace(/\n{3,}/gu, "\n\n")
     .trim();
 

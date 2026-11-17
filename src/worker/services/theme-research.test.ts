@@ -1,12 +1,20 @@
 import { describe, expect, test } from "bun:test";
+import type { Env } from "../types";
 import {
   bundleResearchContent,
   collectSearchUrlsByStance,
   defaultQueries,
   parseStanceQueries,
   pickBalancedUrls,
+  researchTheme,
   type StanceUrlBuckets,
 } from "./theme-research";
+
+const personaCandidates = [
+  { id: "ken", name: "ケン", role: "エンジニア", personality: "技術に厳しい" },
+  { id: "yuki", name: "ユキ", role: "PM", personality: "前向き" },
+  { id: "ren", name: "レン", role: "リサーチャー", personality: "慎重" },
+];
 
 describe("parseStanceQueries", () => {
   test("3キーが揃っていればそれを使う", () => {
@@ -42,6 +50,22 @@ describe("collectSearchUrlsByStance", () => {
       pro: [],
       con: [],
     });
+  });
+});
+
+describe("researchTheme", () => {
+  test("EXA未設定なら検索せず researched=false でフォールバックする", async () => {
+    const result = await researchTheme(
+      "React RSC",
+      {} as Env,
+      "ses_1",
+      personaCandidates,
+      "theme://react%20rsc"
+    );
+    expect(result.researched).toBe(false);
+    expect(result.sources).toEqual([]);
+    expect(result.title).toBe("React RSC");
+    expect(result.analysis.summary.length).toBeGreaterThan(0);
   });
 });
 
@@ -92,6 +116,15 @@ describe("pickBalancedUrls", () => {
       { stance: "pro", url: "https://pro.example/1" },
       { stance: "con", url: "https://con.example/1" },
       { stance: "pro", url: "https://pro.example/2" },
+    ]);
+  });
+
+  test("exclude 済み URL はスキップして次を取る", () => {
+    const picked = pickBalancedUrls(buckets(), 3, new Set(["https://over.example/1", "https://pro.example/1"]));
+    expect(picked.map((p) => p.url)).toEqual([
+      "https://over.example/2",
+      "https://pro.example/2",
+      "https://con.example/1",
     ]);
   });
 });

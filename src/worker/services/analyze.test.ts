@@ -310,6 +310,14 @@ describe("parseArticleSummary", () => {
     const parsed = parseArticleSummary("本文だけの要約");
     expect(parsed).toEqual({ keyQuotes: [], keyPoints: [], summary: "本文だけの要約" });
   });
+
+  test("参考ページセクションは対談用 summary から除く", () => {
+    const withSources = `${saved}\n\n【参考ページ】\n- [pro] A | https://a.example/1`;
+    const parsed = parseArticleSummary(withSources);
+    expect(parsed.summary).toContain("要約です");
+    expect(parsed.summary).not.toContain("参考ページ");
+    expect(parsed.summary).not.toContain("https://a.example/1");
+  });
 });
 
 describe("analyzeArticle", () => {

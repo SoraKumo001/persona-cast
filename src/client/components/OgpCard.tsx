@@ -1,6 +1,7 @@
 import { ExternalLink, MessagesSquare } from "lucide-react";
 import React from "react";
 import { hostOf, isThemeBasedSourceUrl, type Ogp, type SessionMode } from "../lib/api";
+import { RESEARCH_STANCE_LABEL, type ResearchStance } from "../../worker/services/theme";
 
 interface OgpCardProps {
   loading?: boolean;
@@ -8,7 +9,7 @@ interface OgpCardProps {
   ogp?: Ogp | null;
   /** 論戦など、サイトOGPではなく対談ごとの生成画像を出すときに渡す */
   sessionId?: string;
-  sources?: { title: string; url: string }[];
+  sources?: { stance?: ResearchStance; title: string; url: string }[];
   summary?: string | null;
   title: string;
   url: string;
@@ -87,11 +88,19 @@ export function OgpCard({ url, title, summary, ogp, loading, mode, sources, sess
                   target="_blank"
                 >
                   <ExternalLink className="h-3 w-3 shrink-0" />
+                  {s.stance ? (
+                    <span className="shrink-0 text-zinc-500">{RESEARCH_STANCE_LABEL[s.stance]}</span>
+                  ) : null}
                   <span className="truncate">{s.title || s.url}</span>
                 </a>
               </li>
             ))}
           </ul>
+        ) : null}
+        {themeBased && (!sources || sources.length === 0) ? (
+          <p className="mt-3 text-xs text-amber-200/90">
+            ネット調査のページが取れなかったため、一般知識ベースで進行しています。
+          </p>
         ) : null}
         {themeBased ? null : (
           <a

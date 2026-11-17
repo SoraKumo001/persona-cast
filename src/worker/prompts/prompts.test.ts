@@ -247,7 +247,7 @@ describe("全テンプレートの組み立て", () => {
       keyPoints: ["必要性", "コスト"],
       mode: "heated",
     });
-    expect(heatedSystem.content).toContain("未解決の対立");
+    expect(heatedSystem.content).toContain("対立が残っているだけでは延長しない");
     expect(heatedUser.content).toContain("激論");
     expect(heatedUser.content).toContain("まだ浅い");
 

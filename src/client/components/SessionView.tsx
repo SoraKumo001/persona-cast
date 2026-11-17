@@ -27,13 +27,22 @@ function ShareOnX({ url, title }: { url: string; title: string }) {
   );
 }
 
-function PreparingBanner({ mode }: { mode?: "article" | "debate" | "heated" }) {
+function PreparingBanner({
+  mode,
+  researched,
+}: {
+  mode?: "article" | "debate" | "heated";
+  researched?: boolean;
+}) {
+  const themeBased = mode === "debate" || mode === "heated";
   const label =
-    mode === "heated"
-      ? "出演者が調査を踏まえて、激論の切り口を尖らせています…"
-      : mode === "debate"
-        ? "出演者が調査を踏まえて、論戦の切り口を考えています…"
-        : "出演者が記事を読んで、話すことを考えています…";
+    themeBased && researched === false
+      ? "調査ページが取れなかったため、出演者が一般知識で切り口を考えています…"
+      : mode === "heated"
+        ? "出演者が調査を踏まえて、激論の切り口を尖らせています…"
+        : mode === "debate"
+          ? "出演者が調査を踏まえて、論戦の切り口を考えています…"
+          : "出演者が記事を読んで、話すことを考えています…";
   return (
     <p className="flex items-center justify-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-6 text-sm text-zinc-300">
       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-indigo-300" />
@@ -211,7 +220,16 @@ export function SessionView({
         </details>
       )}
 
-      {preparing ? <PreparingBanner mode={session.mode} /> : null}
+      {preparing ? (
+        <PreparingBanner
+          mode={session.mode}
+          researched={
+            session.mode === "debate" || session.mode === "heated"
+              ? parseResearchSources(session.articleSummary).length > 0
+              : undefined
+          }
+        />
+      ) : null}
 
       <ol aria-label="対談ログ" className="space-y-5">
         {messages.map((m) => (

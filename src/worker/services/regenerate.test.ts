@@ -202,4 +202,98 @@ describe("regenerateSession", () => {
     const { env } = setup(stored, { memories: ["mem_1"], vectorize: false });
     expect(await regenerateSession(env, "ses_1", deps())).toMatchObject({ ok: true });
   });
+
+  test("論戦セッションは researchTheme で取り直し、記事スクレイプは呼ばない", async () => {
+    const debate: Row = {
+      source_url: "theme://react%20rsc",
+      article_title: "ReactのRSC",
+      article_summary: "古い調査",
+      og_json: null,
+      generating_at: null,
+      mode: "debate",
+    };
+    let scraped = false;
+    let researchedTitle = "";
+    const { env, batched } = setup(debate);
+    const result = await regenerateSession(
+      env,
+      "ses_1",
+      deps({
+        scrape: () => {
+          scraped = true;
+          return Promise.resolve(scrapedArticle());
+        },
+        research: (theme) => {
+          researchedTitle = theme;
+          return Promise.resolve({
+            title: "ReactのRSC",
+            analysis: { ...analysis, summary: "論戦の新しい要約" },
+            articleSummary:
+              "【要約】\n論戦の新しい要約\n\n【参考ページ】\n- [overview] React | https://react.dev/rsc",
+            researched: true,
+            sources: [{ stance: "overview", title: "React", url: "https://react.dev/rsc" }],
+            ogp: {
+              title: "React",
+              description: null,
+              image: null,
+              siteName: "react.dev",
+              type: null,
+              favicon: null,
+            },
+          });
+        },
+      })
+    );
+    expect(result).toEqual({
+      ok: true,
+      genre: "プログラミング・開発",
+      personaIds: ["eng", "dog", "ana"],
+      scraped: true,
+    });
+    expect(scraped).toBe(false);
+    expect(researchedTitle).toBe("ReactのRSC");
+    expect(batched[0].binds[0]).toBe("ReactのRSC");
+    expect(batched[0].binds[1]).toContain("【参考ページ】");
+    expect(batched[0].binds[3]).toBe("論戦の新しい要約");
+  });
+
+  test("激論セッションも researchTheme 経路を使う", async () => {
+    const heated: Row = {
+      source_url: "heated://react%20rsc",
+      article_title: "ReactのRSC",
+      article_summary: "古い激論",
+      og_json: null,
+      generating_at: null,
+      mode: "heated",
+    };
+    let researchCalls = 0;
+    const { env } = setup(heated);
+    const result = await regenerateSession(
+      env,
+      "ses_1",
+      deps({
+        scrape: () => Promise.reject(new Error("should not scrape")),
+        research: () => {
+          researchCalls += 1;
+          return Promise.resolve({
+            title: "ReactのRSC",
+            analysis,
+            articleSummary: "【要約】\n新しい要約",
+            researched: false,
+            sources: [],
+            ogp: {
+              title: null,
+              description: null,
+              image: null,
+              siteName: null,
+              type: null,
+              favicon: null,
+            },
+          });
+        },
+      })
+    );
+    expect(result).toMatchObject({ ok: true, scraped: false });
+    expect(researchCalls).toBe(1);
+  });
 });

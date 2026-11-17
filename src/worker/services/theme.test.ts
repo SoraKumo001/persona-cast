@@ -37,16 +37,21 @@ describe("normalizeTheme / themeSourceUrl", () => {
 });
 
 describe("research sources section", () => {
-  test("追記と取り出しが往復できる", () => {
+  test("スタンス付きで追記と取り出しが往復できる", () => {
     const base = "【要約】\n本文";
     const withSources = appendSourcesSection(base, [
-      { title: "A", url: "https://a.example/1" },
-      { title: "B", url: "https://b.example/2" },
+      { stance: "pro", title: "A", url: "https://a.example/1" },
+      { stance: "con", title: "B | weird", url: "https://b.example/2" },
     ]);
     expect(withSources).toContain("【参考ページ】");
     expect(parseResearchSources(withSources)).toEqual([
-      { title: "A", url: "https://a.example/1" },
-      { title: "B", url: "https://b.example/2" },
+      { stance: "pro", title: "A", url: "https://a.example/1" },
+      { stance: "con", title: "B weird", url: "https://b.example/2" },
     ]);
+  });
+
+  test("旧形式の参考ページも読める", () => {
+    const legacy = "【要約】\n本文\n\n【参考ページ】\n- Old Title: https://old.example/1";
+    expect(parseResearchSources(legacy)).toEqual([{ title: "Old Title", url: "https://old.example/1" }]);
   });
 });

@@ -3,10 +3,12 @@
  * 調査本体は差し替え、保存と progress・重複判定だけを見る。
  */
 import { describe, expect, mock, test } from "bun:test";
+import * as themeResearch from "../services/theme-research";
 import { heatedSourceUrl, themeSourceUrl } from "../services/theme";
 import type { Env } from "../types";
 
 mock.module("../services/theme-research", () => ({
+  ...themeResearch,
   researchTheme: () =>
     Promise.resolve({
       title: "ReactのRSC",
@@ -18,9 +20,10 @@ mock.module("../services/theme-research", () => ({
         personaIds: ["ken", "yuki", "ren"],
         summary: "RSCの是非についての調査要約",
       },
-      articleSummary: "【要約】\nRSCの是非についての調査要約\n\n【参考ページ】\n- React: https://react.dev/rsc",
+      articleSummary:
+        "【要約】\nRSCの是非についての調査要約\n\n【参考ページ】\n- [overview] React | https://react.dev/rsc",
       researched: true,
-      sources: [{ title: "React", url: "https://react.dev/rsc" }],
+      sources: [{ stance: "overview" as const, title: "React", url: "https://react.dev/rsc" }],
       ogp: { title: "React", description: null, image: null, siteName: "react.dev", type: null, favicon: null },
     }),
 }));
@@ -39,13 +42,23 @@ const personaRows = [
   { id: "ren", name: "レン", role: "リサーチャー", personality: "慎重" },
 ];
 
-function fakeDb(existing: { normalizedUrl: string; id: string; hiddenAt: string | null }[] = []) {
+function fakeDb(
+  existing: {
+    articleSummary?: string;
+    hiddenAt: string | null;
+    id: string;
+    messageCount?: number;
+    normalizedUrl: string;
+  }[] = []
+) {
+  const researchedSummary =
+    "既存\n\n【参考ページ】\n- [overview] React | https://react.dev/rsc";
   const sessions = existing.map((s) => ({
     id: s.id,
     sourceUrl: s.normalizedUrl,
     normalizedUrl: s.normalizedUrl,
     articleTitle: THEME,
-    articleSummary: "既存",
+    articleSummary: s.articleSummary ?? researchedSummary,
     summary: "既存",
     genre: "プログラミング・開発",
     mode: "debate",
@@ -53,8 +66,10 @@ function fakeDb(existing: { normalizedUrl: string; id: string; hiddenAt: string 
     personaIds: '["ken","yuki","ren"]',
     createdAt: "2026-10-29T00:00:00.000Z",
     hiddenAt: s.hiddenAt,
+    messageCount: s.messageCount ?? 0,
   }));
   const inserts: unknown[][] = [];
+  const deleted: string[] = [];
 
   const statement = (sql: string) => {
     let binds: unknown[] = [];
@@ -72,6 +87,11 @@ function fakeDb(existing: { normalizedUrl: string; id: string; hiddenAt: string 
         }
         if (sql.includes("COUNT(*) as count FROM sessions WHERE created_at >=")) {
           return { count: 0 };
+        }
+        if (sql.includes("COUNT(*) as count FROM messages WHERE session_id = ?")) {
+          const [sessionId] = binds as [string];
+          const row = sessions.find((s) => s.id === sessionId);
+          return { count: row?.messageCount ?? 0 };
         }
         if (sql.includes("FROM sessions WHERE normalized_url = ?")) {
           const [normalizedUrl] = binds as [string];
@@ -133,8 +153,21 @@ function fakeDb(existing: { normalizedUrl: string; id: string; hiddenAt: string 
             personaIds,
             createdAt,
             hiddenAt: null,
+            messageCount: 0,
           });
           return { meta: { changes: 1 } };
+        }
+        if (sql.startsWith("DELETE FROM sessions WHERE id = ?")) {
+          const [id] = binds as [string];
+          deleted.push(id);
+          const idx = sessions.findIndex((s) => s.id === id);
+          if (idx >= 0) {
+            sessions.splice(idx, 1);
+          }
+          return { meta: { changes: 1 } };
+        }
+        if (sql.startsWith("DELETE FROM messages") || sql.startsWith("DELETE FROM memory_chunks")) {
+          return { meta: { changes: 0 } };
         }
         return { meta: { changes: 0 } };
       },
@@ -143,9 +176,13 @@ function fakeDb(existing: { normalizedUrl: string; id: string; hiddenAt: string 
   };
 
   return {
-    db: { prepare: statement } as unknown as D1Database,
+    db: {
+      prepare: statement,
+      batch: (stmts: { run: () => unknown }[]) => Promise.all(stmts.map((s) => s.run())),
+    } as unknown as D1Database,
     sessions,
     inserts,
+    deleted,
   };
 }
 
@@ -195,6 +232,32 @@ describe("POST /api/sessions (theme)", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ existing: true, sessionId: "ses_theme_1", mode: "debate" });
+  });
+
+  test("調査なしの未生成セッションは捨てて作り直す", async () => {
+    const { db, deleted, sessions } = fakeDb([
+      {
+        id: "ses_thin_1",
+        normalizedUrl: THEME_KEY,
+        hiddenAt: null,
+        articleSummary: "調査失敗のフォールバック",
+        messageCount: 0,
+      },
+    ]);
+    const env = { DB: db } as unknown as Env;
+    const res = await app.request(
+      "http://localhost/api/sessions",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ theme: THEME }),
+      },
+      env
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ existing: false, researched: true });
+    expect(deleted).toContain("ses_thin_1");
+    expect(sessions.some((s) => s.id === "ses_thin_1")).toBe(false);
   });
 
   test("ndjson では researching → analyzing の順で進む", async () => {

@@ -13,6 +13,8 @@ import { MEMORY_MIN_SCORE, searchSimilarMemories } from "../services/memory";
 import { listPersonaCandidates } from "../services/persona-store";
 import { ScrapeError, scrapeUrl } from "../services/scraper";
 import {
+  countSessionMessages,
+  deleteEmptySession,
   findSessionByNormalizedUrl,
   insertSession,
   listSessions,
@@ -20,11 +22,16 @@ import {
   toSession,
 } from "../services/session-queries";
 import { countTodaySessions, getDailyLimit } from "../services/settings";
-import { displayTheme, heatedSourceUrl, THEME_MAX_CHARS, themeSourceUrl } from "../services/theme";
-import type { SessionMode } from "../types";
+import {
+  displayTheme,
+  heatedSourceUrl,
+  isUnresearchedThemeSummary,
+  THEME_MAX_CHARS,
+  themeSourceUrl,
+} from "../services/theme";
 import { researchTheme } from "../services/theme-research";
 import { normalizeUrl } from "../services/url-normalize";
-import type { Env } from "../types";
+import type { Env, SessionMode } from "../types";
 
 /** Accept にこれを付けた POST には、進行状況を1行1JSONで順に返す */
 const PROGRESS_CONTENT_TYPE = "application/x-ndjson";
@@ -96,8 +103,17 @@ async function postThemeSession(
   const existing = await findSessionByNormalizedUrl(c.env.DB, sourceKey);
   if (existing) {
     const hiddenLabel = sessionMode === "heated" ? "このテーマの激論は公開されていません" : "このテーマの論戦は公開されていません";
-    const outcome = existingOutcome(existing, hiddenLabel);
-    return c.json(outcome.body, outcome.status);
+    // 調査失敗だけの未生成セッションは捨てて作り直す (薄い結果の固定化を防ぐ)
+    if (
+      !existing.hiddenAt &&
+      isUnresearchedThemeSummary(existing.articleSummary) &&
+      (await countSessionMessages(c.env.DB, existing.id)) === 0
+    ) {
+      await deleteEmptySession(c.env.DB, existing.id);
+    } else {
+      const outcome = existingOutcome(existing, hiddenLabel);
+      return c.json(outcome.body, outcome.status);
+    }
   }
   const limitOutcome = await enforceCreateLimits(c);
   if (limitOutcome) {

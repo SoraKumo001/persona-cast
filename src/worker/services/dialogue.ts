@@ -75,7 +75,8 @@ export async function* orchestrateDialogue(
   //    Phase 1 は全ペルソナ分を Promise.all で一度に生成する (逐次ループにしない)。
   //    生成に失敗したペルソナは Map から欠落し、そのまま stance なしで対談を続行する。
   const [pastMemories, stances] = await Promise.all([
-    searchSimilarMemories(`${sessionRow.article_title}\n${sessionRow.article_summary}`, env, 3, MEMORY_MIN_SCORE),
+    // 参考ページは埋め込みノイズになるので、プロンプト用と同じ要約を使う
+    searchSimilarMemories(`${sessionRow.article_title}\n${effectiveSummary}`, env, 3, MEMORY_MIN_SCORE),
     generateStances(
       {
         // A/B比較用: STANCE_PILOT=off なら Phase 1 を丸ごと飛ばす (空配列なら LLM 呼び出しも 0 回)

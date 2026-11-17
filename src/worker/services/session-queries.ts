@@ -163,6 +163,31 @@ export function findSessionByNormalizedUrl(db: D1Database, normalizedUrl: string
     .first<ExistingSessionRow>();
 }
 
+/** 発言数。テーマ調査の薄いセッションを捨てる判定に使う */
+export async function countSessionMessages(db: D1Database, sessionId: string): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?")
+    .bind(sessionId)
+    .first<{ count: number }>();
+  return Number(row?.count ?? 0);
+}
+
+/**
+ * 未生成の薄いテーマセッションを消す (調査失敗のキャッシュを残さない)。
+ * 発言がある場合は消さない。
+ */
+export async function deleteEmptySession(db: D1Database, sessionId: string): Promise<boolean> {
+  if ((await countSessionMessages(db, sessionId)) > 0) {
+    return false;
+  }
+  await db.batch([
+    db.prepare("DELETE FROM messages WHERE session_id = ?").bind(sessionId),
+    db.prepare("DELETE FROM memory_chunks WHERE session_id = ?").bind(sessionId),
+    db.prepare("DELETE FROM sessions WHERE id = ?").bind(sessionId),
+  ]);
+  return true;
+}
+
 /** 新規対談の保存。articleSummary は分析要約 + 論点 + 本文冒頭のハイブリッド */
 export function insertSession(
   db: D1Database,

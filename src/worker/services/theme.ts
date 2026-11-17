@@ -50,16 +50,38 @@ export function isThemeBasedSourceUrl(url: string): boolean {
   return isThemeSourceUrl(url) || isHeatedSourceUrl(url);
 }
 
+const STANCE_TAGS: readonly ResearchStance[] = ["overview", "pro", "con"];
+
+export const RESEARCH_STANCE_LABEL: Record<ResearchStance, string> = {
+  overview: "概要",
+  pro: "肯定",
+  con: "否定",
+};
+
+function isResearchStance(value: string): value is ResearchStance {
+  return (STANCE_TAGS as readonly string[]).includes(value);
+}
+
+/** タイトル中の区切り文字を潰し、パーサが壊れないようにする */
+function sanitizeSourceTitle(title: string): string {
+  return title.replace(/[|[\]]/gu, " ").replace(/\s+/gu, " ").trim() || "無題";
+}
+
 /** 参考ページ一覧をハイブリッド要約に追記する */
 export function appendSourcesSection(articleSummary: string, sources: ResearchSource[]): string {
   if (sources.length === 0) {
     return articleSummary;
   }
-  const block = `${SOURCES_MARKER}\n${sources.map((s) => `- ${s.title}: ${s.url}`).join("\n")}`;
+  const lines = sources.map((s) => {
+    const title = sanitizeSourceTitle(s.title);
+    const stance = s.stance && isResearchStance(s.stance) ? s.stance : "overview";
+    return `- [${stance}] ${title} | ${s.url}`;
+  });
+  const block = `${SOURCES_MARKER}\n${lines.join("\n")}`;
   return articleSummary.trim() ? `${articleSummary.trim()}\n\n${block}` : block;
 }
 
-/** 保存済み要約から参考ページ URL を取り出す */
+/** 保存済み要約から参考ページを取り出す (新旧フォーマット両対応) */
 export function parseResearchSources(articleSummary: string): ResearchSource[] {
   const index = articleSummary.indexOf(SOURCES_MARKER);
   if (index < 0) {
@@ -70,10 +92,22 @@ export function parseResearchSources(articleSummary: string): ResearchSource[] {
   const section = (end >= 0 ? rest.slice(0, end) : rest).trim();
   const sources: ResearchSource[] = [];
   for (const line of section.split("\n")) {
-    const matched = /^-\s*(.+?):\s*(https?:\/\/\S+)/u.exec(line.trim());
-    if (matched) {
-      sources.push({ title: matched[1].trim(), url: matched[2].trim() });
+    const trimmed = line.trim();
+    const withStance = /^-\s*\[(overview|pro|con)\]\s*(.+?)\s*\|\s*(https?:\/\/\S+)/u.exec(trimmed);
+    if (withStance) {
+      sources.push({ stance: withStance[1] as ResearchStance, title: withStance[2].trim(), url: withStance[3].trim() });
+      continue;
+    }
+    // 旧形式: `- title: https://...`
+    const legacy = /^-\s*(.+?):\s*(https?:\/\/\S+)/u.exec(trimmed);
+    if (legacy) {
+      sources.push({ title: legacy[1].trim(), url: legacy[2].trim() });
     }
   }
   return sources;
+}
+
+/** ネット調査の実ページが1件も無い (フォールバック保存) か */
+export function isUnresearchedThemeSummary(articleSummary: string): boolean {
+  return parseResearchSources(articleSummary).length === 0;
 }
