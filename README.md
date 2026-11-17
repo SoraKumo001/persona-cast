@@ -66,12 +66,13 @@ cp .dev.vars.example .dev.vars
 
 ```env
 OPENCODE_API_KEY="your-opencode-api-key-here"
+EXA_API_KEY="your-exa-api-key-here"
 OPENCODE_BASE_URL="https://opencode.ai/inference/go/openai/v1"
 OPENCODE_DEFAULT_MODEL="deepseek-v4.1-flash"
 EMBEDDING_MODEL="@cf/baai/bge-m3"
 ```
 
-> **Note**: APIキー未設定の場合でも、ローカルシミュレーション対話エンジンによりUIと過去記憶引き出しのフローを確認できます。
+> **Note**: `OPENCODE_API_KEY` 未設定でもデモ用の対話で UI を確認できます。`EXA_API_KEY` 未設定だとテーマ論戦のネット調査はスキップされます。
 
 ### 3. D1 データベースのローカルマイグレーション (`cf` CLI)
 ```bash
@@ -118,6 +119,7 @@ bun run d1:migrate
 
 ```dotenv
 OPENCODE_API_KEY=...
+EXA_API_KEY=...
 ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
 ACCESS_AUD=...
 # 任意
@@ -129,6 +131,7 @@ CF_API_TOKEN=...
 | シークレット | 用途 | |
 |---|---|---|
 | `OPENCODE_API_KEY` | LLM。未設定だとデモ用の応答になる | 必須 |
+| `EXA_API_KEY` | テーマ論戦・激論の Web 検索 (Exa Lite)。未設定だと調査スキップ | 推奨 |
 | `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD` | 管理画面の認証 (後述)。未設定だと管理 API は常に拒否 | 必須 |
 | `ANALYTICS_SALT` | 訪問者ハッシュのソルト (長いランダムな文字列) | 任意 |
 | `CF_ACCOUNT_ID`, `CF_API_TOKEN` | アクセス状況の集計 (トークンの権限は Account Analytics の読み取りだけ) | 任意 |

@@ -23,6 +23,7 @@ export default defineConfig({
       AI: bindings.ai({}),
       // シークレット: ローカルは .dev.vars、本番は `cf workers secrets update` で設定
       OPENCODE_API_KEY: bindings.secret(),
+      EXA_API_KEY: bindings.secret(), // テーマ論戦・激論の Web 検索 (Exa Lite)
       ACCESS_TEAM_DOMAIN: bindings.secret(),
       ACCESS_AUD: bindings.secret(),
       ACCESS_DISABLED: bindings.secret(), // ローカル開発専用 (localhost でのみ有効)

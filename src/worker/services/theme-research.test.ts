@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   bundleResearchContent,
+  collectSearchUrlsByStance,
   defaultQueries,
   parseStanceQueries,
   pickBalancedUrls,
@@ -31,6 +32,16 @@ describe("parseStanceQueries", () => {
   test("40文字超は切り詰める", () => {
     const long = "あ".repeat(50);
     expect(parseStanceQueries({ overview: long, pro: "p", con: "c" }, "t").overview.length).toBe(40);
+  });
+});
+
+describe("collectSearchUrlsByStance", () => {
+  test("API キー未設定なら全スタンス空", async () => {
+    expect(await collectSearchUrlsByStance(defaultQueries("React RSC"), undefined)).toEqual({
+      overview: [],
+      pro: [],
+      con: [],
+    });
   });
 });
 

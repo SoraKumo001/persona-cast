@@ -37,6 +37,7 @@ export interface Env {
   LLM_PRICE_CURRENCY?: string; // 単価の通貨の表示 (既定 USD)
   LLM_PRICE_INPUT?: string; // 入力の単価。入力と出力の両方が設定されたときだけ、費用を表示する
   LLM_PRICE_OUTPUT?: string; // 出力の単価
+  EXA_API_KEY?: string; // テーマ論戦の Web 検索 (Exa Lite)
   OPENCODE_API_KEY?: string;
   OPENCODE_BASE_URL?: string;
   OPENCODE_DEFAULT_MODEL?: string;

@@ -1,5 +1,5 @@
 /**
- * テーマ論戦の事前調査: 検索クエリ生成 → DuckDuckGo → 上位ページのスクレイプ → ブリーフ化。
+ * テーマ論戦の事前調査: 検索クエリ生成 → Exa Lite → 上位ページのスクレイプ → ブリーフ化。
  * 検索は overview / pro / con の3本に分け、取得枠もスタンス別に確保する。
  */
 import { buildThemeQueriesMessages } from "../prompts";
@@ -14,7 +14,7 @@ import {
   fallbackPersonas,
   type PersonaCandidate,
 } from "./analyze";
-import { DuckDuckGoError, searchDuckDuckGo } from "./duckduckgo";
+import { ExaSearchError, searchExaLite } from "./exa-search";
 import { guessGenre } from "./genres";
 import { extractJsonObject } from "./json-object";
 import { generateChatCompletion } from "./llm";
@@ -101,16 +101,24 @@ export async function buildSearchQueries(theme: string, env: Env, sessionId: str
 }
 
 /** スタンスごとに検索し、結果をバケツに入れる */
-export async function collectSearchUrlsByStance(queries: StanceQueries): Promise<StanceUrlBuckets> {
+export async function collectSearchUrlsByStance(
+  queries: StanceQueries,
+  apiKey: string | undefined
+): Promise<StanceUrlBuckets> {
+  const key = apiKey?.trim() ?? "";
+  if (!key) {
+    console.warn("theme-research: EXA_API_KEY 未設定のため検索をスキップします");
+    return { overview: [], pro: [], con: [] };
+  }
   const entries = await Promise.all(
     STANCES.map(async (stance) => {
       try {
-        const urls = await searchDuckDuckGo(queries[stance], RESULTS_PER_QUERY);
+        const urls = await searchExaLite(queries[stance], key, RESULTS_PER_QUERY);
         return [stance, urls] as const;
       } catch (err) {
         console.warn(
           `theme-research: search failed stance=${stance}:`,
-          err instanceof DuckDuckGoError ? err.message : err
+          err instanceof ExaSearchError ? err.message : err
         );
         return [stance, [] as string[]] as const;
       }
@@ -244,7 +252,7 @@ export async function researchTheme(
 ): Promise<ThemeResearchResult> {
   const title = displayTheme(theme);
   const queries = await buildSearchQueries(title, env, sessionId);
-  const buckets = await collectSearchUrlsByStance(queries);
+  const buckets = await collectSearchUrlsByStance(queries, env.EXA_API_KEY);
   const picked = pickBalancedUrls(buckets, MAX_SCRAPE);
   const pages = await scrapeResearchPages(picked);
   const sources: ResearchSource[] = pages.map((p) => ({ title: p.title, url: p.url, stance: p.stance }));

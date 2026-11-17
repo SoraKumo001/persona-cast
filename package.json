@@ -11,6 +11,7 @@
     "check": "ultracite check",
     "d1:migrate": "bun scripts/d1-migrate.ts",
     "d1:migrate:local": "bun scripts/d1-migrate.ts --local",
+    "deploy:secret": "cf deploy --secrets-file .dev.vars.production",
     "deploy": "cf deploy",
     "dev": "cf dev",
     "fix": "ultracite fix",

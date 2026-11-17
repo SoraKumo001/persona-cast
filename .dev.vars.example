@@ -1,6 +1,10 @@
 # OpenCode Go API Key (OpenCode Consoleから取得したキー)
 OPENCODE_API_KEY="your-opencode-api-key-here"
 
+# Exa Search API (テーマ論戦・激論の調査用。Lite。未設定だと調査スキップでフォールバック)
+# https://dashboard.exa.ai/api-keys
+EXA_API_KEY=""
+
 # オプション設定
 OPENCODE_BASE_URL="https://opencode.ai/inference/go/openai/v1"
 OPENCODE_DEFAULT_MODEL="deepseek-v4.1-flash"
